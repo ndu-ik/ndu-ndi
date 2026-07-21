@@ -330,6 +330,6 @@ Suggestions and improvements welcome! Key areas for contribution:
 
 ### preview video
 
-![preview video](assets/preview.gif)
+![previewvideo](assets/preview.gif)
 
 **Note**: This system was designed for X11 environments and intel/amd GPUs support for nvidea coming soon. Wayland support may require additional configuration.
