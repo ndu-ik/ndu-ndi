@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Clone the repository (one level, not recursive)
-git clone --depth 1 https://github.com/ndu-ik/ndu-ndi.git
+# Clone the repository without any submodules (non-recursive)
+git clone --no-recurse-submodules https://github.com/ndu-ik/ndu-ndi.git
 
 # Check if clone was successful
 if [ $? -eq 0 ]; then
