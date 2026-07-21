@@ -333,4 +333,4 @@ Suggestions and improvements welcome! Key areas for contribution:
 
 ![previewvideo](assets/preview.gif)
 
-**Note**: This system was designed for X11 environments and intel/amd GPUs support for nvidea coming soon. Wayland support may require additional configuration.
+**Note**: This system was designed for X11 environments and intel/amd GPUs. Support for nvidea coming soon. Wayland support may require additional configuration.
