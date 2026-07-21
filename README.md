@@ -146,6 +146,78 @@ Durations can be specified in human-readable format:
 
 **Minimum interval**: 60 seconds
 
+#### How Duration Works with Live Wallpapers
+
+Fluidwall handles live wallpapers differently from static images. Here's what you need to know:
+
+##### The Short Version
+
+**Every live wallpaper video will play at least once**, regardless of how long your `--change` duration is.
+
+##### Why This Matters
+
+When you set a duration (e.g., `--change 30s`), Fluidwall tries to fill that time with your live wallpaper. However, if your live video is longer than the duration, it will still play the entire video at least once.
+
+##### Example Scenarios
+
+| Your Live Video Length | Your `--change` Duration | What Actually Happens                                   |
+| ---------------------- | ------------------------ | ------------------------------------------------------- |
+| 30 seconds             | 2 minutes                | Video plays: 30s × **4 loops** = 2 minutes              |
+| 2 minutes              | 30 seconds               | Video plays: **2 minutes × 1 loop** (duration exceeded) |
+| 5 minutes              | 1 minute                 | Video plays: **5 minutes × 1 loop** (duration exceeded) |
+| 10 seconds             | 1 minute                 | Video plays: 10s × **6 loops** = 1 minute               |
+
+##### Key Takeaway
+
+> **For live wallpapers, the `--change` duration is a MINIMUM, not an exact time.**
+
+- If your video is **shorter** than the duration → It loops to fill the time
+- If your video is **longer** than the duration → It plays at least once (your duration is effectively extended)
+
+##### Recommended Usage
+
+**For predictable timing**, keep your live wallpaper videos short:
+
+```
+# Good: 30-second live video
+fluidwall.sh start --change 2m        # Plays 30s × 4 loops = 2 minutes
+
+# Good: 10-second live video  
+fluidwall.sh start --change 5m        # Plays 10s × 30 loops = 5 minutes
+
+# Less predictable: 3-minute live video
+fluidwall.sh start --change 1m        # Actually plays 3 minutes (video is longer than duration)
+```
+
+### GPU Acceleration Flags
+
+1. ### GPU Acceleration Flags
+
+This ensures every live wallpaper video completes at least one full playthrough, maintaining visual continuity and preventing abrupt cuts.
+
+### Pro Tip
+
+For best results, create or choose live wallpapers that are:
+
+- **Short** (under 1 minute) for precise control
+- **Loop-friendly** (seamless ends that connect smoothly)
+- **Consistent** in duration (matching your preferred change interval)
+
+---
+
+**Related Commands:**
+
+```bash
+# See current duration settings
+fluidwall.sh status
+
+# Change duration (minimum 60s)
+fluidwall.sh change 5m
+
+# Set how often to use live wallpapers (vs static images)
+fluidwall.sh set-live-every 3    # Use live every 3 images
+```
+
 ### GPU Acceleration Flags
 
 - `--gpu`: Enable VAAPI hardware encoding/decoding (AMD/Intel)
