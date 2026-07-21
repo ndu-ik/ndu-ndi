@@ -34,6 +34,7 @@ Lua script that reads color states and displays dynamic greetings in Conky.
 ffmpeg ffprobe mpv socat yad xwinwrap
 
 # GPU acceleration (optional)
+# note this script was built to work with amd/intel gpus for the gpu acceleration option
 vainfo mesa-va-drivers intel-media-va-driver
 
 # Build dependencies (for xwinwrap)
