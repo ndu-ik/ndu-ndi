@@ -303,4 +303,43 @@ Suggestions and improvements welcome! Key areas for contribution:
 
 ---
 
-**Note**: This system was designed for X11 environments. Wayland support may require additional configuration
+**Note**: This system was designed for X11 environments. Wayland support may require additional configuration.
+
+---
+
+## AntiX Minimal Conky Clock
+
+For a clean, minimalist clock widget for antiX Linux (and other light X11 environments), check out the **Minimal Clock** project:
+
+**[Minimal Clock Repository](https://github.com/shuokenzi23/minimal-clock.git)**
+
+### Features
+- Perfect alignment with `${alignc}` and `${voffset}` formatting
+- True desktop integration with `own_window_type override`
+- Geometric **Anurati** display font for a high-end look
+- Clean digital clock centered underneath the day display
+
+### Quick Setup
+```bash
+# Clone the repository
+git clone https://github.com/shuokenzi23/minimal-clock.git
+cd minimal-clock
+
+# Install the Anurati font
+mkdir -p ~/.local/share/fonts
+# Download Anurati-Regular.otf from:
+# https://www.dafontfree.co/anurati-font/
+cp Anurati-Regular.otf ~/.local/share/fonts/
+fc-cache -fv
+
+# Deploy the Conky config
+cp .conkyrc ~/.conkyrc
+
+# Restart Conky
+killall conky && conky &
+```
+
+### Preview
+<img width="1366" height="768" alt="minimal-clock" src="https://github.com/user-attachments/assets/b1de28e2-7a81-4745-90e3-96aff175d071" />
+
+The Minimal Clock pairs perfectly with FluidWall, providing a sleek typographic display that automatically adapts to your dynamic wallpaper colors.
