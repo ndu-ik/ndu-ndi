@@ -369,6 +369,6 @@ killall conky && conky &
 
 ### Preview
 
-![](/home/IKPC/Screenshot_2026-07-21_09-01-55.jpg)
+![Preview image](assets/Screenshot_2026-07-21_09-01-55.jpg)
 
 The Minimal Clock pairs perfectly with FluidWall, providing a sleek typographic display that automatically adapts to your dynamic wallpaper colors.
