@@ -22,6 +22,9 @@
 #   fluidwall.sh generate [--gpu|--no-gpu] [--parallel N]
 #   fluidwall.sh generate --clean
 #   fluidwall.sh install
+#   fluidwall.sh set-install
+#   fluidwall.sh set-contrast N
+#   fluidwall.sh show-contrast
 #   fluidwall.sh --worker             (internal: the generator loop itself)
 #   fluidwall.sh --generate-worker N  (internal: the pregeneration loop itself)
 #   fluidwall.sh --clean-worker       (internal: the cleanup loop itself)
@@ -256,6 +259,15 @@ Usage:
                                       images/videos no longer present in
                                       PIC_DIR/LIVE_DIR)
   fluidwall.sh install
+  fluidwall.sh set-install
+                                     (full setup after cloning the repo:
+                                      runs install, then installs .conkyrc,
+                                      conky_helpers.lua, and the Anurati
+                                      font, and puts 'fluidwall' on your PATH)
+  fluidwall.sh set-contrast N       (0-100, conky text contrast vs the
+                                      wallpaper; smooth fade is fixed at
+                                      speed 20. Default: ${DEFAULT_SKEW})
+  fluidwall.sh show-contrast
 
 DURATION = how long each image/live-clip is displayed before advancing.
 Minimum allowed: ${MIN_INTERVAL}s.
@@ -356,7 +368,8 @@ recompute_cache_paths() {
     BASE_DIR="$CACHE_DIR/bases"
     CLIP_DIR="$CACHE_DIR/clips"
     TRANS_DIR="/tmp/wallpaper_engine/transitions"
-    mkdir -p "$CACHE_DIR" "$BASE_DIR" "$CLIP_DIR" "$TRANS_DIR"
+    BRIGHTNESS_DIR="$CACHE_DIR/brightness"
+    mkdir -p "$CACHE_DIR" "$BASE_DIR" "$CLIP_DIR" "$TRANS_DIR" "$BRIGHTNESS_DIR"
 }
 
 # ---------------------------------------------------------------------------
@@ -418,6 +431,267 @@ load_config
 recompute_cache_paths
 
 # ---------------------------------------------------------------------------
+# 4b. Wallpaper-contrast conky text color (integrated from sconky.sh)
+#
+#     Whenever update_display_state() (in the generator loop) notices the
+#     on-screen wallpaper changed, it samples that image/video's brightness
+#     and writes a contrasting grayscale color to $COLOR_STATE_FILE, which
+#     conky_helpers.lua reads on every conky update cycle. No .conkyrc edit,
+#     no conky restart.
+#
+#     Only one knob is exposed here: --set-contrast N (0-100), which is the
+#     same "skew" control sconky.sh had under --set-skew (0=linear inversion,
+#     100=hard black/white step). The smooth color-fade between changes is
+#     always on, hardcoded to speed 20 (sconky.sh's --set-smooth 20) --
+#     random flicker mode is not carried over.
+# ---------------------------------------------------------------------------
+CONTRAST_CONFIG_DIR="$HOME/.config/wallpaper_contrast"
+SKEW_FILE="$CONTRAST_CONFIG_DIR/skew.conf"
+DEFAULT_SKEW=70   # 0 = linear (no skew), 100 = full polar skew
+SKEW=$DEFAULT_SKEW
+
+COLOR_STATE_FILE="$RUN_DIR/conky_color.txt"
+TMP_FRAME="/tmp/.fluidwall_contrast_frame.png"
+
+SMOOTH=20            # fixed fade speed (1=fast, 100=slow), same scale sconky used
+SMOOTH_STEPS=15      # interpolation steps used for a fade
+
+CONTRAST_IMG_EXTS="jpg|jpeg|png|bmp|webp|gif|tiff"
+CONTRAST_VID_EXTS="mp4|mkv|webm|mov|avi|m4v"
+
+clamp_skew() {
+    local v="$1"
+    (( v < 0 ))   && v=0
+    (( v > 100 )) && v=100
+    echo "$v"
+}
+
+LAST_HEX_FILE="$RUN_DIR/.contrast_last_hex"
+
+# Creates skew.conf with DEFAULT_SKEW the first time this ever runs, so
+# contrast is explicitly set to 70 from a fresh install rather than just
+# implicitly falling back to it every time the file happens to be missing.
+ensure_skew_config() {
+    if [ ! -f "$SKEW_FILE" ]; then
+        mkdir -p "$CONTRAST_CONFIG_DIR"
+        echo "$DEFAULT_SKEW" > "$SKEW_FILE"
+    fi
+}
+
+load_skew() {
+    ensure_skew_config
+    if [ -f "$SKEW_FILE" ]; then
+        local raw
+        raw=$(tr -dc '0-9\-' < "$SKEW_FILE" | head -n1)
+        if [[ "$raw" =~ ^-?[0-9]+$ ]]; then
+            SKEW=$(clamp_skew "$raw")
+            return
+        fi
+        log_warn "contrast config '$SKEW_FILE' had invalid content, using default ($DEFAULT_SKEW)"
+    fi
+    SKEW=$DEFAULT_SKEW
+}
+
+set_skew() {
+    local val="$1"
+    if [[ ! "$val" =~ ^-?[0-9]+$ ]]; then
+        echo "contrast value must be an integer 0-100, got: '$val'" >&2
+        exit 1
+    fi
+    val=$(clamp_skew "$val")
+    mkdir -p "$CONTRAST_CONFIG_DIR"
+    echo "$val" > "$SKEW_FILE"
+    echo "contrast set to $val (0=linear, 100=full polar skew, smooth=20 fixed) in $SKEW_FILE"
+}
+
+contrast_is_image() { [[ "$1" =~ \.(${CONTRAST_IMG_EXTS})$ ]]; }
+contrast_is_video() { [[ "$1" =~ \.(${CONTRAST_VID_EXTS})$ ]]; }
+
+get_image_brightness() {
+    local path="$1" mean
+    mean=$(convert "$path" -resize 64x64 -colorspace Gray -format "%[fx:mean]" info: 2>/dev/null)
+    [ -z "$mean" ] && { echo ""; return 1; }
+    awk -v m="$mean" 'BEGIN { printf "%d", m * 255 }'
+}
+
+get_video_brightness() {
+    local path="$1"
+    rm -f "$TMP_FRAME"
+    ffmpeg -y -ss 2 -i "$path" -frames:v 1 -q:v 4 "$TMP_FRAME" -loglevel error 2>/dev/null
+    if [ ! -s "$TMP_FRAME" ]; then
+        ffmpeg -y -ss 0 -i "$path" -frames:v 1 -q:v 4 "$TMP_FRAME" -loglevel error 2>/dev/null
+    fi
+    [ -s "$TMP_FRAME" ] || { echo ""; return 1; }
+    get_image_brightness "$TMP_FRAME"
+}
+
+# Brightness cache -- keyed the same way the base/live clip caches are
+# (hash_content for stills, hash_identity for videos), so a brightness
+# value only ever gets computed once per source file instead of on every
+# single wallpaper change. 'generate' pre-populates this for everything up
+# front; update_contrast_for() falls back to computing+caching on demand
+# for anything generate hasn't gotten to yet (e.g. newly added images).
+brightness_cache_file() {
+    local path="$1" h
+    if contrast_is_image "$path"; then
+        h=$(hash_content "$path")
+    else
+        h=$(hash_identity "$path")
+    fi
+    printf '%s\n' "$BRIGHTNESS_DIR/${h}.txt"
+}
+
+# Computes (if not already cached) and returns the brightness for $1.
+ensure_brightness() {
+    local path="$1"
+    [ -f "$path" ] || return 1
+    local cache_file
+    cache_file=$(brightness_cache_file "$path")
+
+    if [ -s "$cache_file" ]; then
+        cat "$cache_file"
+        return 0
+    fi
+
+    local brightness=""
+    if contrast_is_image "$path"; then
+        brightness=$(get_image_brightness "$path")
+    elif contrast_is_video "$path"; then
+        brightness=$(get_video_brightness "$path")
+    else
+        return 1
+    fi
+    [ -z "$brightness" ] && return 1
+
+    mkdir -p "$BRIGHTNESS_DIR"
+    echo "$brightness" > "$cache_file"
+    printf '%s\n' "$brightness"
+}
+
+# Map a background brightness (0-255) to a contrasting text color, using
+# SKEW (0=linear inversion, 100=hard black/white step) as an inverse
+# temperature for a logistic sigmoid centered at the midpoint brightness.
+brightness_to_contrast_hex() {
+    local bg="$1"
+
+    if (( SKEW >= 100 )); then
+        if (( bg < 128 )); then printf "#ffffff"; else printf "#000000"; fi
+        return
+    fi
+
+    local skew_frac
+    skew_frac=$(awk -v s="$SKEW" 'BEGIN { printf "%.6f", s / 100 }')
+
+    local text_val
+    text_val=$(awk -v bg="$bg" -v skew="$skew_frac" '
+        function sigmoid(x, k) { return 1.0 / (1.0 + exp(-k * x)) }
+        BEGIN {
+            norm = bg / 255.0
+            y = 1.0 - norm
+            K_MAX = 40.0
+            k = skew * K_MAX
+            if (k < 0.0001) {
+                f = y
+            } else {
+                lo = sigmoid(0.0 - 0.5, k)
+                hi = sigmoid(1.0 - 0.5, k)
+                s  = sigmoid(y - 0.5, k)
+                f = (s - lo) / (hi - lo)
+            }
+            val = f * 255.0
+            if (val < 0)   val = 0
+            if (val > 255) val = 255
+            printf "%d", val
+        }
+    ')
+
+    printf "#%02x%02x%02x" "$text_val" "$text_val" "$text_val"
+}
+
+# Map a speed factor (1-100) to a per-step interval in seconds (0.01s-1.0s).
+get_transition_interval() {
+    local factor="$1"
+    (( factor < 1 ))   && factor=1
+    (( factor > 100 )) && factor=100
+    awk -v f="$factor" 'BEGIN { printf "%.3f", 0.01 * (1.047128^(f - 1)) }'
+}
+
+update_conky_color() {
+    local hex="$1"
+    mkdir -p "$RUN_DIR"
+    echo "${hex#\#}" > "$COLOR_STATE_FILE"
+}
+
+hex_to_rgb() {
+    local hex="${1#\#}"
+    printf "%d %d %d" "0x${hex:0:2}" "0x${hex:2:2}" "0x${hex:4:2}"
+}
+
+smooth_transition() {
+    local old_hex="$1" new_hex="$2" factor="$3"
+    local steps="$SMOOTH_STEPS" interval
+    interval=$(get_transition_interval "$factor")
+
+    read -r or og ob <<< "$(hex_to_rgb "$old_hex")"
+    read -r nr ng nb <<< "$(hex_to_rgb "$new_hex")"
+
+    local i
+    for (( i=1; i<=steps; i++ )); do
+        local r g b
+        r=$(awk -v a="$or" -v b="$nr" -v i="$i" -v s="$steps" 'BEGIN { printf "%d", a + (b - a) * i / s }')
+        g=$(awk -v a="$og" -v b="$ng" -v i="$i" -v s="$steps" 'BEGIN { printf "%d", a + (b - a) * i / s }')
+        b=$(awk -v a="$ob" -v b="$nb" -v i="$i" -v s="$steps" 'BEGIN { printf "%d", a + (b - a) * i / s }')
+        update_conky_color "$(printf "#%02x%02x%02x" "$r" "$g" "$b")"
+        sleep "$interval"
+    done
+    update_conky_color "$new_hex"
+}
+
+# Last-applied color has to live on disk, not in a shell variable: each
+# wallpaper change runs update_contrast_for() in its own backgrounded
+# subshell (so contrast sampling never blocks playback bookkeeping), and a
+# subshell's variable changes never make it back to the parent. Without
+# this, every single call would see "no previous color" and always jump
+# instantly instead of fading.
+read_last_hex() {
+    [ -s "$LAST_HEX_FILE" ] && cat "$LAST_HEX_FILE"
+}
+
+write_last_hex() {
+    mkdir -p "$RUN_DIR"
+    printf '%s\n' "$1" > "$LAST_HEX_FILE"
+}
+
+apply_contrast_color() {
+    local target_hex="$1"
+    local last_hex
+    last_hex=$(read_last_hex)
+    if [ -n "$last_hex" ] && [ "$last_hex" != "$target_hex" ]; then
+        smooth_transition "$last_hex" "$target_hex" "$SMOOTH"
+    else
+        update_conky_color "$target_hex"
+    fi
+    write_last_hex "$target_hex"
+}
+
+# Look up (cached) brightness for $1 (image or video path) and update the
+# conky text color to contrast against it. Meant to be run in the
+# background (&) from the generator loop so it never blocks playback
+# bookkeeping.
+update_contrast_for() {
+    local path="$1"
+    [ -f "$path" ] || return 0
+
+    contrast_is_image "$path" || contrast_is_video "$path" || return 0
+
+    local brightness
+    brightness=$(ensure_brightness "$path") || return 0
+    [ -z "$brightness" ] && return 0
+
+    apply_contrast_color "$(brightness_to_contrast_hex "$brightness")"
+}
+
+# ---------------------------------------------------------------------------
 # 5. Dependency install
 # ---------------------------------------------------------------------------
 install_dependencies() {
@@ -445,6 +719,108 @@ install_dependencies() {
     fi
 
     echo "Dependency install complete."
+}
+
+# ---------------------------------------------------------------------------
+# 5b. Full post-clone setup (set-install)
+#
+#     'install' (above) only installs OS-level dependencies. 'set-install'
+#     continues from there: it wires up this repo's .conkyrc, its
+#     conky_helpers.lua, the Anurati display font, and puts a 'fluidwall'
+#     command on PATH. Meant to be run once, right after cloning the repo.
+# ---------------------------------------------------------------------------
+ANURATI_ZIP_URL="https://www.dafontfree.co/wp-content/uploads/download-manager-files/Anurati_Free_Font.zip"
+# If the direct download link above ever breaks or moves, the font can also
+# be found from its listing page: https://www.dafontfree.co/anurati-font/
+
+# Locates the cloned repo directory so set-install works whether it's at the
+# expected ~/ndu-ndi or the user cloned it somewhere else -- falls back to
+# the directory this script itself is running from.
+find_repo_dir() {
+    local candidate
+    for candidate in "$HOME/ndu-ndi" "$(dirname "$SCRIPT_PATH")"; do
+        if [ -f "$candidate/_conkyrc" ] && [ -f "$candidate/conky_helpers.lua" ] && [ -f "$candidate/fluidwall.sh" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+set_install() {
+    install_dependencies || { echo "install_dependencies failed, aborting set-install."; return 1; }
+
+    local repo_dir
+    repo_dir=$(find_repo_dir) || {
+        echo "Couldn't find a cloned copy of the repo (looked in ~/ndu-ndi and $(dirname "$SCRIPT_PATH")), expecting _conkyrc, conky_helpers.lua, and fluidwall.sh there. Aborting."
+        return 1
+    }
+    echo "Using repo files from: $repo_dir"
+
+    echo "Backing up ~/.conkyrc -> ~/.conkyrc.bak and installing repo's _conkyrc..."
+    [ -f "$HOME/.conkyrc" ] && cp -f "$HOME/.conkyrc" "$HOME/.conkyrc.bak"
+    cp -f "$repo_dir/_conkyrc" "$HOME/.conkyrc"
+
+    echo "Installing conky_helpers.lua to ~/.local/run ..."
+    mkdir -p "$HOME/.local/run"
+    cp -f "$repo_dir/conky_helpers.lua" "$HOME/.local/run/conky_helpers.lua"
+
+    echo "Downloading Anurati font..."
+    local font_dir="$HOME/Downloads/Anurati_Free_Font"
+    local font_zip="$HOME/Downloads/Anurati_Free_Font.zip"
+    mkdir -p "$HOME/Downloads"
+    if command -v wget >/dev/null 2>&1; then
+        wget -O "$font_zip" "$ANURATI_ZIP_URL"
+    else
+        curl -L -o "$font_zip" "$ANURATI_ZIP_URL"
+    fi
+    if [ ! -s "$font_zip" ]; then
+        echo "Font download failed or came back empty. If ${ANURATI_ZIP_URL} is dead, grab it manually from https://www.dafontfree.co/anurati-font/ and re-run set-install."
+        return 1
+    fi
+
+    rm -rf "$font_dir"
+    mkdir -p "$font_dir"
+    unzip -o "$font_zip" -d "$font_dir" >/dev/null
+
+    local otf_path="$font_dir/ANURATI Free Font/Anurati-Regular.otf"
+    if [ ! -f "$otf_path" ]; then
+        echo "Expected font file not found at $otf_path after extraction. Check the archive layout and install it manually."
+        return 1
+    fi
+
+    mkdir -p "$HOME/.local/share/fonts"
+    cp -f "$otf_path" "$HOME/.local/share/fonts/"
+    if [ -f "$HOME/.local/share/fonts/Anurati-Regular.otf" ]; then
+        echo "Anurati-Regular.otf installed to ~/.local/share/fonts."
+    else
+        echo "Failed to copy Anurati-Regular.otf into ~/.local/share/fonts."
+        return 1
+    fi
+    fc-cache -fv
+
+    echo "Ensuring ~/.local/bin is on PATH via ~/.bashrc..."
+    local path_snippet='# Add ~/.local/bin to PATH if it exists
+if [ -d "$HOME/.local/bin" ] ; then
+    export PATH="$HOME/.local/bin:$PATH"
+fi'
+    if ! grep -qF 'Add ~/.local/bin to PATH if it exists' "$HOME/.bashrc" 2>/dev/null; then
+        printf '\n%s\n' "$path_snippet" >> "$HOME/.bashrc"
+    fi
+    # shellcheck disable=SC1090
+    source "$HOME/.bashrc" 2>/dev/null
+
+    echo "Installing 'fluidwall' to ~/.local/bin ..."
+    mkdir -p "$HOME/.local/bin"
+    cp -f "$repo_dir/fluidwall.sh" "$HOME/.local/bin/fluidwall"
+    chmod +x "$HOME/.local/bin/fluidwall"
+
+    echo "Restarting conky..."
+    killall conky 2>/dev/null
+    conky &
+    disown
+
+    echo "pls you might want to make edits to the conkyrc file to align it to your preference"
 }
 
 # ---------------------------------------------------------------------------
@@ -540,7 +916,8 @@ status_daemon() {
             "$INTERVAL" "$LIVE_EVERY" "$PIC_DIR" "$LIVE_DIR"
         printf 'Resolution: %sx%s   GPU (VAAPI): %s\n' "$TARGET_W" "$TARGET_H" "$([ "$GPU" = "1" ] && echo on || echo off)"
         printf 'Pregen buffer target: %s distinct steps\n' "$PREGEN_COUNT"
-        [ -f "$LOG_FILE" ] && { printf '\nTail of log:\n'; tail -n 8 "$LOG_FILE"; }
+        load_skew
+        printf 'Contrast: %s   (smooth fade fixed at 20)\n' "$SKEW"
     else
         printf 'Fluidwall daemon: INACTIVE\n'
     fi
@@ -1034,6 +1411,8 @@ run_worker() {
     recompute_cache_paths
     compute_encoding_config
     init_ram_cache
+    load_skew
+    rm -f "$LAST_HEX_FILE"
     log_info "Generator loop starting (interval=${INTERVAL}s, live_every=${LIVE_EVERY}, gpu=${GPU}, resolution=${TARGET_W}x${TARGET_H}, pregen_buffer=${PREGEN_COUNT} distinct steps)."
 
     trap 'log_info "Worker received termination signal, exiting."; pkill -x xwinwrap 2>/dev/null; pkill -x mpv 2>/dev/null; rm -f "$SOCK"; cleanup_ram_cache; exit 0' TERM INT
@@ -1115,6 +1494,7 @@ run_worker() {
         if [ "$label" != "$LAST_STATE" ]; then
             printf '%s\n' "$label" > "$STATE_FILE"
             LAST_STATE="$label"
+            update_contrast_for "$label" &
         fi
     }
 
@@ -1166,6 +1546,7 @@ run_worker() {
     do_reload() {
         local old_pic="$PIC_DIR" old_live="$LIVE_DIR" old_gpu="$GPU"
         load_config
+        load_skew
         log_info "Reload: interval=${INTERVAL}s live_every=${LIVE_EVERY} pic_dir=${PIC_DIR} live_dir=${LIVE_DIR} gpu=${GPU}"
         if [ "$GPU" != "$old_gpu" ]; then
             log_warn "GPU setting changed via reload (${old_gpu} -> ${GPU}). Restart the daemon ('fluidwall.sh restart') to apply it to playback and new encodes cleanly."
@@ -1259,7 +1640,7 @@ generate_worker() {
     local running=0 done_count=0 img vid
 
     for img in "${IMAGES[@]}"; do
-        ( ensure_image_base "$img" ) &
+        ( ensure_image_base "$img" && ensure_brightness "$img" >/dev/null ) &
         running=$((running+1))
         if [ "$running" -ge "$parallel" ]; then
             wait -n
@@ -1269,7 +1650,7 @@ generate_worker() {
         fi
     done
     for vid in "${LIVES[@]}"; do
-        ( ensure_live_clips "$vid" ) &
+        ( ensure_live_clips "$vid" && ensure_brightness "$vid" >/dev/null ) &
         running=$((running+1))
         if [ "$running" -ge "$parallel" ]; then
             wait -n
@@ -1358,6 +1739,19 @@ clean_worker() {
             rm -f "$f"
             removed=$((removed+1))
             log_info "Removed stale transition: $base"
+        fi
+    done
+
+    # Orphaned brightness cache entries (keyed the same way as base/live
+    # clips: hash_content for stills, hash_identity for videos).
+    for f in "$BRIGHTNESS_DIR"/*.txt; do
+        [ -e "$f" ] || continue
+        base=$(basename "$f")
+        h_match="${base%.txt}"
+        if [ -z "${valid_img_hash[$h_match]:-}" ] && [ -z "${valid_live_hash[$h_match]:-}" ]; then
+            rm -f "$f"
+            removed=$((removed+1))
+            log_info "Removed orphaned brightness cache entry: $base"
         fi
     done
 
@@ -1456,6 +1850,17 @@ case "${1:-}" in
         ;;
     install)
         install_dependencies
+        ;;
+    set-install)
+        set_install
+        ;;
+    set-contrast)
+        shift
+        set_skew "${1:?usage: fluidwall.sh set-contrast <0-100>}"
+        ;;
+    show-contrast)
+        load_skew
+        echo "$SKEW"
         ;;
     -c|--change|--change=*)
         shift
