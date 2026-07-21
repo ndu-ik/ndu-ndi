@@ -2,7 +2,8 @@
 
 A complete solution for dynamic wallpaper management with intelligent contrast-based text coloring for Conky.
 
-> Note
+> Note:
+>
 > was built for live wallpapers with short durations (less than 5mins at most) NB: `for every set duration, the script loops the live wallpaper at least once till it duration time is reached.` 
 
 ## Overview
