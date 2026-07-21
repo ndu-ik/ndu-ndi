@@ -53,6 +53,7 @@ cd ~/ndu-ndi
 ```
 
 The `set-install` command handles everything automatically:
+
 - Installs all system dependencies
 - Backs up and installs the Conky configuration
 - Sets up `conky_helpers.lua`
@@ -304,18 +305,6 @@ fluidwall set-live-every 3
 fluidwall set-live-every 0
 ```
 
-### Custom Conky Greetings
-
-Create `~/greetings3.txt` with one greeting per line:
-
-```
-Good Morning!
-Hello World!
-Welcome back!
-```
-
-The greeting rotates every 10 seconds.
-
 ## License
 
 These scripts are provided as-is. Feel free to modify and distribute.
@@ -330,5 +319,11 @@ Suggestions and improvements welcome! Key areas for contribution:
 - Integration with other desktop environments
 
 ---
+
+### preview image
+![](assets/preview.jpg)
+
+### preview video 
+![preview video](assets/preview.gif)
 
 **Note**: This system was designed for X11 environments and intel/amd GPUs support for nvidea coming soon. Wayland support may require additional configuration.
