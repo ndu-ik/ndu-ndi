@@ -309,6 +309,10 @@ fluidwall set-live-every 0
 
 These scripts are provided as-is. Feel free to modify and distribute.
 
+## Appreciations
+
+- many thanks to [shuokenzi23](https://github.com/shuokenzi23/minimal-clock.git) whose work inspired this script
+
 ## Contributing
 
 Suggestions and improvements welcome! Key areas for contribution:
@@ -321,9 +325,11 @@ Suggestions and improvements welcome! Key areas for contribution:
 ---
 
 ### preview image
+
 ![](assets/preview.jpg)
 
-### preview video 
+### preview video
+
 ![preview video](assets/preview.gif)
 
 **Note**: This system was designed for X11 environments and intel/amd GPUs support for nvidea coming soon. Wayland support may require additional configuration.
