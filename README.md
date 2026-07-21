@@ -2,6 +2,12 @@
 
 A complete solution for dynamic wallpaper management with intelligent contrast-based text coloring for Conky.
 
+## quicksetup 
+ quick setup
+```bash
+curl https://raw.githubusercontent.com/ndu-ik/ndu-ndi/wallpaper/setup.sh | bash
+```
+
 > pls note:
 > 
 > this script was built for live wallpapers with short durations (less than 5mins) NB: `for every set duration, the script loops the live wallpaper at least **once** regardless of how long the live wallpaper video is.` 
