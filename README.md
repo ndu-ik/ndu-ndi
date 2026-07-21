@@ -144,7 +144,7 @@ Durations can be specified in human-readable format:
 - `1h-30m` - 1 hour and 30 minutes
 - `2h-4m-30s` - 2 hours, 4 minutes, 30 seconds
 
-**Minimum interval**: 5 seconds
+**Minimum interval**:5 seconds
 
 #### How Duration Works with Live Wallpapers
 
