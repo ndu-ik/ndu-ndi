@@ -303,4 +303,4 @@ Suggestions and improvements welcome! Key areas for contribution:
 
 ---
 
-**Note**: This system was designed for X11 environments. Wayland support may require additional configuration.
+**Note**: This system was designed for X11 environments. Wayland support may require additional configuration
