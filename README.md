@@ -407,12 +407,14 @@ Suggestions and improvements welcome! Key areas for contribution:
 
 ---
 
-### preview image
-
-![](assets/preview.jpg)
-
 ### preview video
 
-![previewvideo](assets/preview.gif)
+https://github.com/user-attachments/assets/073ef5a4-09df-4477-a04a-95c95f4fd122
+
+### preview image 
+
+<img width="1920" height="1080" alt="preview" src="https://github.com/user-attachments/assets/1d56ba96-2849-4f77-a153-03ebabfaf7b2" />
+
+
 
 **Note**: This system was designed for X11 environments and intel/amd GPUs. Support for nvidea coming soon. Wayland support may require additional configuration.
