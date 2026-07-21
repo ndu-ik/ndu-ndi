@@ -15,17 +15,13 @@ FluidWall is a sophisticated wallpaper engine that provides:
 
 ## Components
 
-The system consists of three main components:
+The system consists of two main components:
 
 ### 1. `fluidwall.sh` - The Wallpaper Engine
 
-Manages the wallpaper slideshow with support for static images and live videos.
+Manages the wallpaper slideshow with support for static images and live videos, including automatic contrast detection and Conky color updates.
 
-### 2. `sconky.sh` - Contrast-Based Text Color Updater
-
-Monitors wallpaper changes and automatically adjusts Conky text colors for optimal readability.
-
-### 3. `conky_helpers.lua` - Conky Integration
+### 2. `conky_helpers.lua` - Conky Integration
 
 Lua script that reads color states and displays dynamic greetings in Conky.
 
@@ -35,7 +31,7 @@ Lua script that reads color states and displays dynamic greetings in Conky.
 
 ```bash
 # Core utilities
-ffmpeg ffprobe mpv socat yad xwinwrap inotify-tools feh
+ffmpeg ffprobe mpv socat yad xwinwrap
 
 # GPU acceleration (optional)
 vainfo mesa-va-drivers intel-media-va-driver
@@ -44,62 +40,49 @@ vainfo mesa-va-drivers intel-media-va-driver
 git build-essential libx11-dev libxrender-dev x11-xserver-utils
 ```
 
-### Installation
-
-```bash
-# Clone and build xwinwrap (required for video wallpapers)
-git clone https://github.com/mmhobi7/xwinwrap.git
-cd xwinwrap && make && sudo make install
-
-# Install dependencies via apt
-sudo apt install ffmpeg mpv socat yad feh inotify-tools
-```
-
 ## Quick Start
 
-### 1. Initial Setup
+### Initial Setup
 
 ```bash
-# Make scripts executable
-chmod +x fluidwall.sh sconky.sh
+# Navigate to the repository
+cd ~/ndu-ndi
 
-# Install required dependencies
-./fluidwall.sh install
-
-# Generate cached clips for faster startup (optional)
-./fluidwall.sh generate
+# Run the complete setup (installs dependencies, configures Conky, installs font, sets up PATH)
+./fluidwall.sh set-install
 ```
 
-### 2. Start the Wallpaper Engine
+The `set-install` command handles everything automatically:
+- Installs all system dependencies
+- Backs up and installs the Conky configuration
+- Sets up `conky_helpers.lua`
+- Downloads and installs the Anurati font
+- Adds `fluidwall` to your PATH
+- Restarts Conky
+
+### Start the Wallpaper Engine
 
 ```bash
 # Start with default settings (30-minute interval)
-./fluidwall.sh start
+fluidwall start
 
 # Start with custom interval (5 minutes)
-./fluidwall.sh start --change 5m
+fluidwall start --change 5m
 
 # Start with GPU acceleration
-./fluidwall.sh start --gpu
+fluidwall start --gpu
+
+# Start with CPU-only (override GPU setting)
+fluidwall start --no-gpu
 ```
 
-### 3. Start the Conky Color Updater
-
-```bash
-# Run as daemon
-./sconky.sh
-
-# Run in foreground for debugging
-./sconky.sh --foreground
-```
-
-### 4. Configure Conky
+### Configure Conky (if not using set-install)
 
 Add to your `.conkyrc`:
 
 ```lua
 # Load the Lua helpers
-lua_load ~/scripts/lib/conky_helpers.lua
+lua_load ~/.local/run/conky_helpers.lua
 
 # Use in your conky text:
 ${lua conky_greeting}
@@ -112,24 +95,37 @@ ${lua_parse conky_color_open}This text adapts to wallpaper contrast${lua_parse c
 
 ```bash
 # Start/Stop the daemon
-./fluidwall.sh start [--change DURATION] [--gpu|--no-gpu]
-./fluidwall.sh stop
-./fluidwall.sh restart [--change DURATION] [--gpu|--no-gpu]
+fluidwall start [--change DURATION|-c DURATION] [--gpu|--no-gpu]
+fluidwall stop
+fluidwall restart [--change DURATION|-c DURATION] [--gpu|--no-gpu]
 
 # View status and logs
-./fluidwall.sh status
-./fluidwall.sh log
-./fluidwall.sh live-log
+fluidwall status
+fluidwall log
+fluidwall live-log                    # View live video scheduling log
 
 # Change settings on the fly
-./fluidwall.sh change 10m                    # Change interval to 10 minutes
-./fluidwall.sh set-live-every 5              # Show live video every 5 images
-./fluidwall.sh set-pic-dir ~/Pictures        # Change image directory
-./fluidwall.sh set-live-dir ~/.set           # Change video directory
+fluidwall change DURATION             # Change interval to DURATION
+fluidwall set-live-every N            # Show live video every N images
+fluidwall set-pic-dir [DIR]           # Change image directory (opens picker if omitted)
+fluidwall set-live-dir [DIR]          # Change video directory (opens picker if omitted)
 
 # Pre-generation and cleanup
-./fluidwall.sh generate [--gpu|--no-gpu] [--parallel N]
-./fluidwall.sh generate --clean              # Remove orphaned cached files
+fluidwall generate [--gpu|--no-gpu] [--parallel N]
+fluidwall generate --clean            # Remove orphaned cached files
+
+# Contrast (text color) settings
+fluidwall set-contrast N              # 0=linear inversion, 100=hard black/white (default: 70)
+fluidwall show-contrast               # Display current contrast value
+
+# Installation
+fluidwall install                     # Install system dependencies only
+fluidwall set-install                 # Full setup: install deps, .conkyrc, helpers, font, PATH
+
+# Help
+fluidwall help
+fluidwall -h
+fluidwall --help
 ```
 
 ### Duration Format
@@ -144,27 +140,29 @@ Durations can be specified in human-readable format:
 
 **Minimum interval**: 60 seconds
 
-### SConky Configuration
+### GPU Acceleration Flags
 
-```bash
-# Set contrast skew (0=linear inversion, 100=hard black/white)
-./sconky.sh --set-skew 70
+- `--gpu`: Enable VAAPI hardware encoding/decoding (AMD/Intel)
+- `--no-gpu`: Force CPU encoding/decoding (overrides saved setting)
 
-# Enable smooth color transitions
-./sconky.sh --set-smooth 50    # 0=off, 1=fast, 100=slow
+The GPU setting persists to `~/.local/run/fluidwall.conf`. Without either flag, the last saved setting is used (default: off).
 
-# Enable random flicker effects
-./sconky.sh --set-random 30    # 0=off, 1=few, 100=rapid
+### Contrast Control
 
-# View current settings
-./sconky.sh --show-skew --show-smooth --show-random
-```
+The wallpaper engine automatically adjusts Conky text colors for optimal readability:
+
+- **Contrast value (0-100)**: Controls the mapping from background brightness to text color
+  - `0`: Linear inversion (text = 255 - bg)
+  - `70` (default): Smooth contrast with balanced saturation
+  - `100`: Hard black/white step function
+
+Color transitions are smooth and fixed at speed 20 (1=fast, 100=slow).
 
 ## Architecture
 
 ### How It Works
 
-1. **Wallpaper Cycling** (`fluidwall.sh`):
+1. **Wallpaper Cycling**:
    
    - Scans directories for images and videos
    - Generates short "base clips" (0.5 seconds) of each media
@@ -172,14 +170,14 @@ Durations can be specified in human-readable format:
    - Uses `mpv` + `xwinwrap` for video playback
    - Applies crossfade transitions between clips
 
-2. **Contrast Detection** (`sconky.sh`):
+2. **Contrast Detection**:
    
-   - Monitors `~/.local/run/fluidwall.current_img`
-   - Samples average brightness of current wallpaper
-   - Applies sigmoid mapping with configurable skew
+   - Monitors current wallpaper changes
+   - Samples average brightness of current image/video
+   - Applies sigmoid mapping with configurable contrast value
    - Writes contrast color to `~/.local/run/conky_color.txt`
 
-3. **Conky Integration** (`conky_helpers.lua`):
+3. **Conky Integration**:
    
    - Reads color state file on each Conky update
    - Applies color without restarting Conky
@@ -192,16 +190,17 @@ Durations can be specified in human-readable format:
 ├── fluidwall.current_img      # Current wallpaper path
 ├── conky_color.txt            # Current contrast color (hex)
 ├── fluidwall.pid              # Daemon PID
-└── fluidwall_mpv.sock         # MPV IPC socket
+├── fluidwall_mpv.sock         # MPV IPC socket
+├── fluidwall.conf             # Configuration (interval, live_every, GPU)
+└── conky_helpers.lua          # Lua helper script
 
 ~/.config/wallpaper_contrast/
-├── skew.conf                  # Contrast skew (0-100)
-├── smooth.conf                # Smooth transition speed
-└── random.conf                # Random flicker intensity
+└── skew.conf                  # Contrast value (0-100)
 
 ~/Pictures/wallpaper_engine/   # Generated clip cache
 ├── bases/                     # 0.5s base clips of images
-└── clips/                     # Live video head/tail clips
+├── clips/                     # Live video head/tail clips
+└── brightness/                # Cached brightness values
 
 /tmp/fluidwall_ram_*/          # RAM cache for active clips
 /tmp/wallpaper_engine/         # Transition clips cache
@@ -214,7 +213,7 @@ Durations can be specified in human-readable format:
 Enable hardware encoding/decoding for better performance:
 
 ```bash
-./fluidwall.sh start --gpu
+fluidwall start --gpu
 ```
 
 ### Pre-Generation
@@ -222,14 +221,18 @@ Enable hardware encoding/decoding for better performance:
 Generate all clips in advance to avoid startup delays:
 
 ```bash
-./fluidwall.sh generate --parallel 4
+fluidwall generate --parallel 4
 ```
 
 ### Memory Usage
 
 - Base clips are cached in RAM (`/tmp/fluidwall_ram_*/`)
-- Only `PREGEN_COUNT` clips are kept in memory
-- Default buffer size: 3 clips (~10-15MB)
+- Only `PREGEN_COUNT` clips are kept in memory (default: 3)
+- Default buffer: ~10-15MB per clip
+
+### Buffer Management
+
+The system maintains a rolling buffer of `PREGEN_COUNT` distinct steps queued ahead of playback. Each step represents one displayed item (image or live video segment) and is enqueued as a single playlist entry using mpv's built-in loop feature.
 
 ## Troubleshooting
 
@@ -239,26 +242,26 @@ Generate all clips in advance to avoid startup delays:
 
 ```bash
 # Check if daemon is running
-./fluidwall.sh status
+fluidwall status
 
 # Check logs for errors
-./fluidwall.sh log
+fluidwall log
 
 # Restart the daemon
-./fluidwall.sh restart
+fluidwall restart
 ```
 
 **Conky color not updating:**
 
 ```bash
-# Check if sconky is running
-ps aux | grep sconky
+# Check if daemon is running
+fluidwall status
 
-# View sconky log
-tail -f ~/.log/srwbg.log
+# View current contrast setting
+fluidwall show-contrast
 
-# Force color update
-echo "ffffff" > ~/.local/run/conky_color.txt
+# Force color update by adjusting contrast
+fluidwall set-contrast 50
 ```
 
 **Video wallpapers not working:**
@@ -271,28 +274,35 @@ which xwinwrap
 vainfo
 
 # Fall back to CPU
-./fluidwall.sh restart --no-gpu
+fluidwall restart --no-gpu
 ```
 
 **Memory/CPU issues:**
 
 ```bash
-# Reduce buffer size (edit fluidwall.sh)
-PREGEN_COUNT=1  # Instead of 3
-
-# Reduce cache generation
-./fluidwall.sh generate --parallel 1
+# Reduce parallel generation jobs
+fluidwall generate --parallel 1
 ```
 
 ## Advanced Configuration
 
-### Custom Contrast Mapping
+### Custom Image and Video Directories
 
-The contrast mapping uses a sigmoid function with configurable skew:
+```bash
+# Set directories (opens picker if no argument provided)
+fluidwall set-pic-dir ~/Pictures/Wallpapers
+fluidwall set-live-dir ~/Videos/LiveWallpapers
+```
 
-- **Skew=0**: Linear inversion (text = 255 - bg)
-- **Skew=70** (default): Smooth contrast with some saturation
-- **Skew=100**: Hard black/white step function
+### Live Video Scheduling
+
+```bash
+# Show live video every N static images
+fluidwall set-live-every 3
+
+# Disable live videos
+fluidwall set-live-every 0
+```
 
 ### Custom Conky Greetings
 
@@ -304,15 +314,7 @@ Hello World!
 Welcome back!
 ```
 
-### Custom Live Video Scheduling
-
-```bash
-# Show live video every N static images
-./fluidwall.sh set-live-every 3
-
-# Disable live videos
-./fluidwall.sh set-live-every 0
-```
+The greeting rotates every 10 seconds.
 
 ## License
 
@@ -329,50 +331,4 @@ Suggestions and improvements welcome! Key areas for contribution:
 
 ---
 
-**Note**: This system was designed for X11 environments. Wayland support may require additional configuration.
-
----
-
-## AntiX Minimal Conky Clock
-
-For a clean, minimalist clock widget for antiX Linux (and other light X11 environments), check out the **Minimal Clock** project:
-
-**[Minimal Clock Repository](https://github.com/shuokenzi23/minimal-clock.git)**
-
-### Features
-
-- Perfect alignment with `${alignc}` and `${voffset}` formatting
-- True desktop integration with `own_window_type override`
-- Geometric **Anurati** display font for a high-end look
-- Clean digital clock centered underneath the day display
-
-### Quick Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/shuokenzi23/minimal-clock.git
-cd minimal-clock
-
-# Install the Anurati font
-mkdir -p ~/.local/share/fonts
-# Download Anurati-Regular.otf from:
-# https://www.dafontfree.co/anurati-font/
-cp Anurati-Regular.otf ~/.local/share/fonts/
-fc-cache -fv
-
-# Deploy the Conky config
-cp .conkyrc ~/.conkyrc
-
-# Restart Conky
-killall conky && conky &
-```
-
-### Preview image
-
-![](assets/preview.jpg)
-
-### preview video
-
-![preview video](assets/preview.gif)
-
-The Minimal Clock pairs perfectly with FluidWall, providing a sleek typographic display that automatically adapts to your dynamic wallpaper colors.
+**Note**: This system was designed for X11 environments and intel/amd GPUs support for nvidea coming soon. Wayland support may require additional configuration.
