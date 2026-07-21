@@ -2,6 +2,10 @@
 
 A complete solution for dynamic wallpaper management with intelligent contrast-based text coloring for Conky.
 
+> Note
+> 
+> - was built for live wallpapers with short durations NB: `for every set duration, the script loops the live wallpaper at least once till it duration time is reached.` 
+
 ## Overview
 
 FluidWall is a sophisticated wallpaper engine that provides:
