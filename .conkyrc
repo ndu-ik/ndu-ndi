@@ -1,6 +1,6 @@
 # Standard antiX .conkyrc file
 # For conky editing help and commands visit = Casey's Conky Reference with Examples {http://www.ifxgroup.net/conky.htm}
-lua_load ~/scripts/lib/conky_helpers.lua
+lua_load ~/.local/run/conky_helpers.lua
 # --- Global Settings ---
 background yes                        # Fork Conky into the background on startup
 update_interval 0.05                   # Refresh rate in seconds
