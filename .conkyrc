@@ -3,7 +3,7 @@
 lua_load ~/.local/run/conky_helpers.lua
 # --- Global Settings ---
 background yes                        # Fork Conky into the background on startup
-update_interval 0.05                   # Refresh rate in seconds
+update_interval 0.1                   # Refresh rate in seconds1
 cpu_avg_samples 2                     # Number of samples to average for CPU monitoring
 net_avg_samples 2                     # Number of samples to average for net bandwidth
 no_buffers yes                        # Subtract file system buffers from used memory
