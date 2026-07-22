@@ -66,7 +66,7 @@ VAAPI_DEVICE="/dev/dri/renderD128"
 # --- Buffer-based pregeneration ---------------------------------------------
 PREGEN_COUNT=3          # how many distinct steps to keep queued ahead
 BUFFER_POLL_INTERVAL=5   # seconds between buffer-level checks in steady state
-MIN_INTERVAL=5          # hard floor for per-clip display duration
+MIN_INTERVAL=60          # hard floor for per-clip display duration
 
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 
@@ -698,8 +698,7 @@ install_dependencies() {
     echo "Installing dependencies (apt + xwinwrap from source)..."
     sudo apt update
     sudo apt install -y ffmpeg mpv socat yad libnotify-bin git build-essential \
-        libx11-dev libxext-dev libxrender-dev x11proto-core-dev \
-        x11-xserver-utils \
+        libx11-dev libxrender-dev x11-xserver-utils \
         vainfo mesa-va-drivers intel-media-va-driver
 
     if command -v xwinwrap >/dev/null 2>&1; then
@@ -740,8 +739,7 @@ ANURATI_ZIP_URL="https://www.dafontfree.co/wp-content/uploads/download-manager-f
 find_repo_dir() {
     local candidate
     for candidate in "$HOME/ndu-ndi" "$(dirname "$SCRIPT_PATH")"; do
-        if { [ -f "$candidate/_conkyrc" ] || [ -f "$candidate/.conkyrc" ]; } \
-            && [ -f "$candidate/conky_helpers.lua" ] && [ -f "$candidate/fluidwall.sh" ]; then
+        if [ -f "$candidate/_conkyrc" ] && [ -f "$candidate/conky_helpers.lua" ] && [ -f "$candidate/fluidwall.sh" ]; then
             printf '%s\n' "$candidate"
             return 0
         fi
@@ -749,32 +747,19 @@ find_repo_dir() {
     return 1
 }
 
-# Returns the conkyrc filename actually present in the given repo dir,
-# preferring _conkyrc if both happen to exist.
-repo_conkyrc_name() {
-    local dir="$1"
-    if [ -f "$dir/_conkyrc" ]; then
-        printf '_conkyrc\n'
-    else
-        printf '.conkyrc\n'
-    fi
-}
-
 set_install() {
     install_dependencies || { echo "install_dependencies failed, aborting set-install."; return 1; }
 
     local repo_dir
     repo_dir=$(find_repo_dir) || {
-        echo "Couldn't find a cloned copy of the repo (looked in ~/ndu-ndi and $(dirname "$SCRIPT_PATH")), expecting _conkyrc or .conkyrc, conky_helpers.lua, and fluidwall.sh there. Aborting."
+        echo "Couldn't find a cloned copy of the repo (looked in ~/ndu-ndi and $(dirname "$SCRIPT_PATH")), expecting _conkyrc, conky_helpers.lua, and fluidwall.sh there. Aborting."
         return 1
     }
     echo "Using repo files from: $repo_dir"
 
-    local conkyrc_name
-    conkyrc_name=$(repo_conkyrc_name "$repo_dir")
-    echo "Backing up ~/.conkyrc -> ~/.conkyrc.bak and installing repo's ${conkyrc_name}..."
+    echo "Backing up ~/.conkyrc -> ~/.conkyrc.bak and installing repo's _conkyrc..."
     [ -f "$HOME/.conkyrc" ] && cp -f "$HOME/.conkyrc" "$HOME/.conkyrc.bak"
-    cp -f "$repo_dir/$conkyrc_name" "$HOME/.conkyrc"
+    cp -f "$repo_dir/_conkyrc" "$HOME/.conkyrc"
 
     echo "Installing conky_helpers.lua to ~/.local/run ..."
     mkdir -p "$HOME/.local/run"
