@@ -1,25 +1,30 @@
 #!/bin/bash
 
-# 1. Clone without checking out any files or submodules initially
-git clone --no-checkout --no-recurse-submodules https://github.com/ndu-ik/ndu-ndi.git ndu-ndi
+# Define target directory
+TARGET_DIR="$HOME/ndu-ndi"
 
-# Check if clone was successful
-if [ $? -eq 0 ]; then
-    # Change into the directory
-    cd ndu-ndi || exit
+# Create the directory if it doesn't exist and navigate into it
+mkdir -p "$TARGET_DIR"
+cd "$TARGET_DIR" || exit
+
+echo "Downloading top-level files directly..."
+
+# Base URL for raw content from the wallpaper branch
+BASE_URL="https://raw.githubusercontent.com/ndu-ik/ndu-ndi/wallpaper"
+
+# Download the required files directly
+curl -sL "$BASE_URL/.conkyrc" -o .conkyrc
+curl -sL "$BASE_URL/conky_helpers.lua" -o conky_helpers.lua
+curl -sL "$BASE_URL/fluidwall.sh" -o fluidwall.sh
+
+# Check if downloads were successful
+if [ -f "fluidwall.sh" ]; then
+    # Make fluidwall.sh executable just in case
+    chmod +x fluidwall.sh
     
-    # 2. Initialize sparse-checkout in cone mode
-    git sparse-checkout init --cone
-    
-    # 3. Explicitly tell git to only check out files at the root level (no subfolders)
-    git sparse-checkout set ""
-    
-    # 4. Checkout the repository with the sparse rules applied
-    git checkout
-     
-    # 5. Run the fluidwall.sh script with set-install parameter
+    # Run the fluidwall.sh script with set-install parameter
     ./fluidwall.sh set-install
 else
-    echo "Failed to clone repository"
+    echo "Failed to download required files."
     exit 1
 fi
