@@ -7,7 +7,7 @@ TARGET_DIR="$HOME/ndu-ndi"
 mkdir -p "$TARGET_DIR"
 cd "$TARGET_DIR" || exit
 
-echo "Downloading top-level files directly..."
+echo "Downloading top-level files directly... and picom"
 
 # Base URL for raw content from the wallpaper branch
 BASE_URL="https://raw.githubusercontent.com/ndu-ik/ndu-ndi/wallpaper"
