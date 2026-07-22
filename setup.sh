@@ -12,18 +12,27 @@ echo "Downloading top-level files directly..."
 # Base URL for raw content from the wallpaper branch
 BASE_URL="https://raw.githubusercontent.com/ndu-ik/ndu-ndi/wallpaper"
 
-# Download the required files directly
+# Download the required repository files directly
 curl -sL "$BASE_URL/.conkyrc" -o .conkyrc
 curl -sL "$BASE_URL/conky_helpers.lua" -o conky_helpers.lua
 curl -sL "$BASE_URL/fluidwall.sh" -o fluidwall.sh
+
+# Download and place picom.conf into ~/.config/
+mkdir -p "$HOME/.config"
+curl -sL "$BASE_URL/picom.conf" -o "$HOME/.config/picom.conf"
 
 # Check if downloads were successful
 if [ -f "fluidwall.sh" ]; then
     # Make fluidwall.sh executable just in case
     chmod +x fluidwall.sh
     
-    # Run the fluidwall.sh script with set-install parameter
+    # Run the fluidwall.sh script with set-install parameter and wait for it to finish
     ./fluidwall.sh set-install
+    
+    echo "Installation finished. Starting conky and picom..."
+    
+    # Run conky and picom with the specified config in the background
+    conky && picom --config ~/.config/picom.conf &
 else
     echo "Failed to download required files."
     exit 1
