@@ -1,28 +1,31 @@
 -- conky_helpers.lua
 --
--- Drives dynamic content (greeting text, contrast color) for conky WITHOUT
--- ever touching .conkyrc or forcing a reload. Conky calls these functions
--- on every update cycle (per update_interval in .conkyrc); they just read
--- small plain-text state files that other scripts write to.
+-- Drives dynamic contrast-color content for conky WITHOUT ever touching
+-- .conkyrc or forcing a reload. Conky calls these functions on every update
+-- cycle (per update_interval in .conkyrc); they just read small
+-- plain-text state files that other scripts write to whenever the
+-- wallpaper or window corner changes.
 --
 -- Usage in .conkyrc:
---   lua_load ~/scripts/lib/conky_helpers.lua
+--   lua_load ~/.local/run/conky_helpers.lua
 --   ...
---   ${lua conky_greeting}
 --   ${lua_parse conky_color_open}some text${lua_parse conky_color_close}
+--   ${lua_parse conky_alignment}
 --
 -- State files:
---   ~/.local/run/conky_color.txt         -- single line hex color, e.g. "cacaca" (no '#')
+--   ~/.local/run/conky_color.txt       -- single line hex color, e.g. "cacaca" (no '#')
+--   ~/.local/run/conky_alignment.txt   -- single line corner, e.g. "top_right"
+--
+-- NOTE: conky_alignment() is for DISPLAY purposes only (e.g. printing the
+-- current corner somewhere in the TEXT section). It cannot move the conky
+-- window itself — the actual window placement is controlled by launching
+-- conky with `-a <corner>` (see conkyposition.sh), since the "alignment"
+-- setting is only read once at window-creation time and isn't something
+-- lua_parse can change at runtime.
 
 local HOME = os.getenv("HOME")
-local GREETINGS_FILE = HOME .. "/greetings3.txt"
 local COLOR_FILE = HOME .. "/.local/run/conky_color.txt"
-
--- Cache for greeting to avoid changing on every Conky update
-local greeting_cache = {
-    text = "",
-    timestamp = 0
-}
+local ALIGNMENT_FILE = HOME .. "/.local/run/conky_alignment.txt"
 
 local function read_file(path)
     local f = io.open(path, "r")
@@ -33,44 +36,6 @@ local function read_file(path)
         content = content:gsub("%s+$", "") -- trim trailing whitespace/newline
     end
     return content
-end
-
--- Returns a random greeting from the greetings file (raw text only)
--- Changes every 5 seconds
-function conky_greeting()
-    local current_time = os.time()
-    
-    -- Check if we need to update the greeting (every 5 seconds)
-    if current_time - greeting_cache.timestamp >= 60 then
-        local f = io.open(GREETINGS_FILE, "r")
-        if not f then 
-            greeting_cache.text = "No greeting file found"
-            greeting_cache.timestamp = current_time
-            return greeting_cache.text
-        end
-        
-        local lines = {}
-        for line in f:lines() do
-            local trimmed = line:match("^%s*(.-)%s*$")
-            if trimmed and #trimmed > 0 then
-                table.insert(lines, trimmed)
-            end
-        end
-        f:close()
-        
-        if #lines == 0 then 
-            greeting_cache.text = "No greetings available"
-            greeting_cache.timestamp = current_time
-            return greeting_cache.text
-        end
-        
-        -- Seed random
-        math.randomseed(current_time + math.random(1000))
-        greeting_cache.text = lines[math.random(#lines)]
-        greeting_cache.timestamp = current_time
-    end
-    
-    return greeting_cache.text
 end
 
 -- Returns the current contrast color as a conky-compatible ${color #xxxxxx} tag.
@@ -84,4 +49,14 @@ end
 
 function conky_color_close()
     return "${color}"
+end
+
+-- Returns the current corner (e.g. "top_right") as written by
+-- conkyposition.sh. Display-only, see NOTE above.
+function conky_alignment()
+    local alignment = read_file(ALIGNMENT_FILE)
+    if not alignment or alignment == "" then
+        alignment = "top_right"
+    end
+    return alignment
 end
