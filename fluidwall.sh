@@ -16,7 +16,7 @@
 #   fluidwall.sh status
 #   fluidwall.sh log
 #   fluidwall.sh change DURATION
-#   fluidwall.sh set-live-every N
+#   fluidwall.sh set-live-every N     (N<0 = live-only mode, no static images)
 #   fluidwall.sh set-pic-dir [DIR]
 #   fluidwall.sh set-live-dir [DIR]
 #   fluidwall.sh generate [--gpu|--no-gpu] [--parallel N]
@@ -64,7 +64,7 @@ TRANS_OFFSET=0.05      # xfade offset into the clip
 VAAPI_DEVICE="/dev/dri/renderD128"
 
 # --- Buffer-based pregeneration ---------------------------------------------
-PREGEN_COUNT=3          # how many distinct steps to keep queued ahead
+PREGEN_COUNT=5          # how many distinct steps to keep queued ahead
 BUFFER_POLL_INTERVAL=5   # seconds between buffer-level checks in steady state
 MIN_INTERVAL=5          # hard floor for per-clip display duration
 
@@ -146,6 +146,51 @@ detect_aspect_ratio() {
 
 TARGET_ASPECT="$(detect_aspect_ratio "$TARGET_W" "$TARGET_H")"
 log_info "Selected closest standard aspect ratio: ${TARGET_ASPECT} (from ${TARGET_W}x${TARGET_H})."
+
+# ---------------------------------------------------------------------------
+# 2c. .conkyrc auto-resize (integrated from conkyset.sh)
+#
+#     Scales minimum_size/maximum_width/maximum_height and the Anurati/
+#     sans-serif font sizes in ~/.conkyrc to whatever resolution was just
+#     detected above, relative to a 1920x1080 baseline. Runs unconditionally
+#     every time fluidwall.sh starts -- no flag needed, nothing to remember
+#     to invoke.
+# ---------------------------------------------------------------------------
+CONKYRC="$HOME/.conkyrc"
+CONKY_BASE_WIDTH=1920
+CONKY_BASE_HEIGHT=1080
+CONKY_BASE_CONKY_WIDTH=700
+CONKY_BASE_CONKY_HEIGHT=394
+CONKY_BASE_FONT_DATE=60
+CONKY_BASE_FONT_TIME=40
+
+resize_conky() {
+    if [ ! -f "$CONKYRC" ]; then
+        log_warn "resize_conky: $CONKYRC not found, skipping auto-resize."
+        return 0
+    fi
+
+    local width_factor height_factor avg_factor
+    width_factor=$(echo "scale=6; $TARGET_W / $CONKY_BASE_WIDTH" | bc)
+    height_factor=$(echo "scale=6; $TARGET_H / $CONKY_BASE_HEIGHT" | bc)
+    avg_factor=$(echo "scale=6; ($width_factor + $height_factor) / 2" | bc)
+
+    local new_conky_width new_conky_height new_font_date new_font_time
+    new_conky_width=$(echo "$CONKY_BASE_CONKY_WIDTH * $width_factor" | bc | awk '{print int($1+0.5)}')
+    new_conky_height=$(echo "$CONKY_BASE_CONKY_HEIGHT * $height_factor" | bc | awk '{print int($1+0.5)}')
+    new_font_date=$(echo "$CONKY_BASE_FONT_DATE * $avg_factor" | bc | awk '{print int($1+0.5)}')
+    new_font_time=$(echo "$CONKY_BASE_FONT_TIME * $avg_factor" | bc | awk '{print int($1+0.5)}')
+
+    sed -i -E "s/(minimum_size\s+)[0-9]+([[:space:]]+)[0-9]+/\1$new_conky_width\2$new_conky_height/g" "$CONKYRC"
+    sed -i -E "s/(maximum_width\s+)[0-9]+/\1$new_conky_width/g" "$CONKYRC"
+    sed -i -E "s/(maximum_height\s+)[0-9]+/\1$new_conky_height/g" "$CONKYRC"
+    sed -i -E "s/(Anurati:size=)[0-9]+/\1$new_font_date/g" "$CONKYRC"
+    sed -i -E "s/(sans-serif:size=)[0-9]+/\1$new_font_time/g" "$CONKYRC"
+
+    log_info "resize_conky: scaled $CONKYRC for ${TARGET_W}x${TARGET_H} (conky ${new_conky_width}x${new_conky_height}, date font ${new_font_date}, time font ${new_font_time})."
+}
+
+resize_conky
 
 # ---------------------------------------------------------------------------
 # 3. Duration parsing (30s, 10m, 2h, 1h-30m ...)
@@ -247,7 +292,7 @@ Usage:
   fluidwall.sh log
   fluidwall.sh live-log
   fluidwall.sh change DURATION
-  fluidwall.sh set-live-every N
+  fluidwall.sh set-live-every N     (N<0 = live-only mode, no static images)
   fluidwall.sh set-pic-dir [DIR]     (opens picker if DIR omitted)
   fluidwall.sh set-live-dir [DIR]    (opens picker if DIR omitted)
   fluidwall.sh generate [--gpu|--no-gpu] [--parallel N]
@@ -335,7 +380,7 @@ load_config() {
             PIC_DIR)    PIC_DIR="$v" ;;
             LIVE_DIR)   LIVE_DIR="$v" ;;
             INTERVAL)   [[ "$v" =~ ^[0-9]+$ ]] && INTERVAL="$v" ;;
-            LIVE_EVERY) [[ "$v" =~ ^[0-9]+$ ]] && LIVE_EVERY="$v" ;;
+            LIVE_EVERY) [[ "$v" =~ ^-?[0-9]+$ ]] && LIVE_EVERY="$v" ;;
             GPU)        [[ "$v" =~ ^[01]$ ]] && GPU="$v" ;;
         esac
     done < "$CONFIG_FILE"
@@ -367,7 +412,7 @@ recompute_cache_paths() {
     CACHE_DIR="$PIC_DIR/wallpaper_engine"
     BASE_DIR="$CACHE_DIR/bases"
     CLIP_DIR="$CACHE_DIR/clips"
-    TRANS_DIR="/tmp/wallpaper_engine/transitions"
+    TRANS_DIR="/mnt/fluidwall_ram/wallpaper_engine/transitions"
     BRIGHTNESS_DIR="$CACHE_DIR/brightness"
     mkdir -p "$CACHE_DIR" "$BASE_DIR" "$CLIP_DIR" "$TRANS_DIR" "$BRIGHTNESS_DIR"
 }
@@ -394,7 +439,7 @@ recompute_cache_paths() {
 #     RAM_CACHE_DIR does NOT depend on PIC_DIR, so it's computed once, here,
 #     independent of recompute_cache_paths().
 # ---------------------------------------------------------------------------
-RAM_CACHE_DIR="/tmp/fluidwall_ram_${UID}"
+RAM_CACHE_DIR="/mnt/fluidwall_ram/${UID}"
 
 # Wipes and (re)creates the RAM cache. Called on every daemon/generate
 # startup and restart so stale clips from a previous run (or a previous
@@ -501,7 +546,28 @@ set_skew() {
     val=$(clamp_skew "$val")
     mkdir -p "$CONTRAST_CONFIG_DIR"
     echo "$val" > "$SKEW_FILE"
+    SKEW="$val"
     echo "contrast set to $val (0=linear, 100=full polar skew, smooth=20 fixed) in $SKEW_FILE"
+
+    # Tell the running daemon (if any) to reload its in-memory SKEW via
+    # USR1 -> do_reload -> load_skew. Without this, the daemon keeps the
+    # stale SKEW it loaded at startup and silently reverts the contrast
+    # back to the old value on the very next update_contrast_for() call
+    # (i.e. the next wallpaper/media change).
+    if daemon_running; then
+        reload_running_daemon
+    fi
+
+    # Apply immediately against whatever is currently displayed, instead of
+    # waiting for the next wallpaper change to pick up the new skew.
+    local current_img=""
+    [ -s "$STATE_FILE" ] && current_img=$(cat "$STATE_FILE")
+    if [ -n "$current_img" ] && [ -f "$current_img" ]; then
+        update_contrast_for "$current_img"
+        echo "Applied immediately to the current wallpaper."
+    else
+        echo "No active wallpaper detected yet; will apply on the next change."
+    fi
 }
 
 contrast_is_image() { [[ "$1" =~ \.(${CONTRAST_IMG_EXTS})$ ]]; }
@@ -698,8 +764,7 @@ install_dependencies() {
     echo "Installing dependencies (apt + xwinwrap from source)..."
     sudo apt update
     sudo apt install -y ffmpeg mpv socat yad libnotify-bin git build-essential \
-        libx11-dev libxext-dev libxrender-dev x11proto-core-dev \
-        x11-xserver-utils \
+        libx11-dev libxrender-dev x11-xserver-utils \
         vainfo mesa-va-drivers intel-media-va-driver
 
     if command -v xwinwrap >/dev/null 2>&1; then
@@ -740,8 +805,7 @@ ANURATI_ZIP_URL="https://www.dafontfree.co/wp-content/uploads/download-manager-f
 find_repo_dir() {
     local candidate
     for candidate in "$HOME/ndu-ndi" "$(dirname "$SCRIPT_PATH")"; do
-        if { [ -f "$candidate/_conkyrc" ] || [ -f "$candidate/.conkyrc" ]; } \
-            && [ -f "$candidate/conky_helpers.lua" ] && [ -f "$candidate/fluidwall.sh" ]; then
+        if [ -f "$candidate/_conkyrc" ] && [ -f "$candidate/conky_helpers.lua" ] && [ -f "$candidate/fluidwall.sh" ]; then
             printf '%s\n' "$candidate"
             return 0
         fi
@@ -749,32 +813,19 @@ find_repo_dir() {
     return 1
 }
 
-# Returns the conkyrc filename actually present in the given repo dir,
-# preferring _conkyrc if both happen to exist.
-repo_conkyrc_name() {
-    local dir="$1"
-    if [ -f "$dir/_conkyrc" ]; then
-        printf '_conkyrc\n'
-    else
-        printf '.conkyrc\n'
-    fi
-}
-
 set_install() {
     install_dependencies || { echo "install_dependencies failed, aborting set-install."; return 1; }
 
     local repo_dir
     repo_dir=$(find_repo_dir) || {
-        echo "Couldn't find a cloned copy of the repo (looked in ~/ndu-ndi and $(dirname "$SCRIPT_PATH")), expecting _conkyrc or .conkyrc, conky_helpers.lua, and fluidwall.sh there. Aborting."
+        echo "Couldn't find a cloned copy of the repo (looked in ~/ndu-ndi and $(dirname "$SCRIPT_PATH")), expecting _conkyrc, conky_helpers.lua, and fluidwall.sh there. Aborting."
         return 1
     }
     echo "Using repo files from: $repo_dir"
 
-    local conkyrc_name
-    conkyrc_name=$(repo_conkyrc_name "$repo_dir")
-    echo "Backing up ~/.conkyrc -> ~/.conkyrc.bak and installing repo's ${conkyrc_name}..."
+    echo "Backing up ~/.conkyrc -> ~/.conkyrc.bak and installing repo's _conkyrc..."
     [ -f "$HOME/.conkyrc" ] && cp -f "$HOME/.conkyrc" "$HOME/.conkyrc.bak"
-    cp -f "$repo_dir/$conkyrc_name" "$HOME/.conkyrc"
+    cp -f "$repo_dir/_conkyrc" "$HOME/.conkyrc"
 
     echo "Installing conky_helpers.lua to ~/.local/run ..."
     mkdir -p "$HOME/.local/run"
@@ -824,6 +875,25 @@ fi'
     fi
     # shellcheck disable=SC1090
     source "$HOME/.bashrc" 2>/dev/null
+
+    # Verify the snippet actually landed in .bashrc and that PATH itself
+    # (in this shell, post-source) now contains ~/.local/bin. Purely
+    # informational for now -- no retry attempted if either check fails.
+    if grep -qF 'Add ~/.local/bin to PATH if it exists' "$HOME/.bashrc" 2>/dev/null; then
+        log_info "set-install: PATH snippet confirmed present in ~/.bashrc."
+    else
+        log_err "set-install: PATH snippet NOT found in ~/.bashrc after attempted write."
+    fi
+    case ":$PATH:" in
+        *":$HOME/.local/bin:"*)
+            log_info "set-install: ~/.local/bin confirmed on PATH."
+            echo "~/.local/bin is on PATH."
+            ;;
+        *)
+            log_warn "set-install: ~/.local/bin NOT detected on PATH in this shell."
+            echo "~/.local/bin was written to ~/.bashrc but is not on PATH in this shell yet. Open a new terminal (or run 'source ~/.bashrc') to pick it up."
+            ;;
+    esac
 
     echo "Installing 'fluidwall' to ~/.local/bin ..."
     mkdir -p "$HOME/.local/bin"
@@ -927,8 +997,10 @@ stop_daemon() {
 status_daemon() {
     if daemon_running; then
         printf 'Fluidwall daemon: ACTIVE (pid %s)\n' "$(cat "$PID_FILE")"
+        local live_every_desc="$LIVE_EVERY"
+        [ "$LIVE_EVERY" -lt 0 ] 2>/dev/null && live_every_desc="$LIVE_EVERY (live-only mode)"
         printf 'Interval: %ss   Live every: %s   Pic dir: %s   Live dir: %s\n' \
-            "$INTERVAL" "$LIVE_EVERY" "$PIC_DIR" "$LIVE_DIR"
+            "$INTERVAL" "$live_every_desc" "$PIC_DIR" "$LIVE_DIR"
         printf 'Resolution: %sx%s   GPU (VAAPI): %s\n' "$TARGET_W" "$TARGET_H" "$([ "$GPU" = "1" ] && echo on || echo off)"
         printf 'Pregen buffer target: %s distinct steps\n' "$PREGEN_COUNT"
         load_skew
@@ -1000,13 +1072,21 @@ change_interval() {
 
 set_live_every() {
     local n="$1"
-    [[ "$n" =~ ^[0-9]+$ ]] || { echo "live-every must be a non-negative integer."; return 1; }
+    [[ "$n" =~ ^-?[0-9]+$ ]] || { echo "live-every must be an integer (negative = live-only)."; return 1; }
     set_config_key LIVE_EVERY "$n"
     if daemon_running; then
         reload_running_daemon
-        echo "live-every updated to $n (applied live)."
+        if [ "$n" -lt 0 ]; then
+            echo "live-every updated to $n (live-only mode, applied live)."
+        else
+            echo "live-every updated to $n (applied live)."
+        fi
     else
-        echo "live-every saved ($n). Daemon not running."
+        if [ "$n" -lt 0 ]; then
+            echo "live-every saved ($n, live-only mode). Daemon not running."
+        else
+            echo "live-every saved ($n). Daemon not running."
+        fi
     fi
 }
 
@@ -1300,6 +1380,12 @@ live_to_img_transition() {
     build_transition "${LIVE_TAIL_OF[$vid]}" "${IMG_BASE_OF[$img]}" "$TRANS_DIR/live_${hv}_to_img_${hi}_transition.mp4"
 }
 
+live_to_live_transition() {
+    local a="$1" b="$2"
+    local ha="${LIVE_HASH_OF[$a]}" hb="${LIVE_HASH_OF[$b]}"
+    build_transition "${LIVE_TAIL_OF[$a]}" "${LIVE_HEAD_OF[$b]}" "$TRANS_DIR/live_${ha}_to_live_${hb}_transition.mp4"
+}
+
 # ---------------------------------------------------------------------------
 # 13. Scan sources
 # ---------------------------------------------------------------------------
@@ -1434,7 +1520,14 @@ run_worker() {
     trap 'RELOAD_REQUESTED=1' USR1
 
     scan_sources
-    [ "${#IMAGES[@]}" -gt 0 ] || die "No static images found in $PIC_DIR."
+    local live_only=0
+    [ "$LIVE_EVERY" -lt 0 ] 2>/dev/null && live_only=1
+
+    if [ "$live_only" -eq 1 ]; then
+        [ "${#LIVES[@]}" -gt 0 ] || die "live-every is negative (live-only mode) but no live wallpapers found in $LIVE_DIR."
+    else
+        [ "${#IMAGES[@]}" -gt 0 ] || die "No static images found in $PIC_DIR."
+    fi
 
     local have_live=0
     [ "${#LIVES[@]}" -gt 0 ] && have_live=1
@@ -1445,6 +1538,13 @@ run_worker() {
     local prev_img=""
     local static_count=0
     local first=1
+
+    # Live-only mode uses its own shuffled order over LIVES instead of
+    # ORDER/IMAGES.
+    mapfile -t LIVE_ORDER < <(printf '%s\n' "${LIVES[@]}" | shuf)
+    local live_n="${#LIVE_ORDER[@]}"
+    local live_idx=0
+    local prev_vid=""
 
     QUEUE_ARR=()
     QUEUE_OPTS_ARR=()
@@ -1558,34 +1658,91 @@ run_worker() {
         fi
     }
 
+    # Live-only mode (LIVE_EVERY < 0): chain live clips directly, one after
+    # another, via live->live crossfade transitions. No static images are
+    # queued at all in this mode.
+    build_and_queue_live_step() {
+        local vid="$1"
+        ensure_live_clips "$vid"
+
+        if [ "$first" -eq 1 ]; then
+            schedule_live_segment "$vid" "$INTERVAL" || log_err "Failed to schedule live segment: $vid"
+            STEP_ENDS+=("$((TOTAL_QUEUED + ${#QUEUE_ARR[@]} - 1))")
+            STEP_COUNT=$((STEP_COUNT + 1))
+            first=0
+            return 0
+        fi
+
+        local t
+        t=$(live_to_live_transition "$prev_vid" "$vid") && enqueue "$t" "" "$vid"
+        schedule_live_segment "$vid" "$INTERVAL" || log_err "Failed to schedule live segment: $vid"
+        STEP_ENDS+=("$((TOTAL_QUEUED + ${#QUEUE_ARR[@]} - 1))")
+        STEP_COUNT=$((STEP_COUNT + 1))
+    }
+
+    advance_live_idx() {
+        live_idx=$((live_idx+1))
+        if [ "$live_idx" -ge "$live_n" ]; then
+            live_idx=0
+            mapfile -t LIVE_ORDER < <(printf '%s\n' "${LIVES[@]}" | shuf)
+            log_info "Completed a full live-only pass, reshuffled order."
+        fi
+    }
+
     do_reload() {
         local old_pic="$PIC_DIR" old_live="$LIVE_DIR" old_gpu="$GPU"
+        local old_live_only="$live_only"
         load_config
         load_skew
+        live_only=0
+        [ "$LIVE_EVERY" -lt 0 ] 2>/dev/null && live_only=1
         log_info "Reload: interval=${INTERVAL}s live_every=${LIVE_EVERY} pic_dir=${PIC_DIR} live_dir=${LIVE_DIR} gpu=${GPU}"
         if [ "$GPU" != "$old_gpu" ]; then
             log_warn "GPU setting changed via reload (${old_gpu} -> ${GPU}). Restart the daemon ('fluidwall.sh restart') to apply it to playback and new encodes cleanly."
             compute_encoding_config
         fi
-        if [ "$PIC_DIR" != "$old_pic" ] || [ "$LIVE_DIR" != "$old_live" ]; then
+        if [ "$PIC_DIR" != "$old_pic" ] || [ "$LIVE_DIR" != "$old_live" ] || [ "$live_only" -ne "$old_live_only" ]; then
             recompute_cache_paths
             scan_sources
-            [ "${#IMAGES[@]}" -gt 0 ] || { log_err "Reload: no images in new PIC_DIR, keeping old source list."; PIC_DIR="$old_pic"; LIVE_DIR="$old_live"; recompute_cache_paths; scan_sources; return; }
+            if [ "$live_only" -eq 1 ]; then
+                [ "${#LIVES[@]}" -gt 0 ] || { log_err "Reload: live-every negative (live-only mode) but no live wallpapers in new LIVE_DIR, keeping old source list/mode."; PIC_DIR="$old_pic"; LIVE_DIR="$old_live"; live_only="$old_live_only"; recompute_cache_paths; scan_sources; return; }
+            else
+                [ "${#IMAGES[@]}" -gt 0 ] || { log_err "Reload: no images in new PIC_DIR, keeping old source list."; PIC_DIR="$old_pic"; LIVE_DIR="$old_live"; recompute_cache_paths; scan_sources; return; }
+            fi
             mapfile -t ORDER < <(printf '%s\n' "${IMAGES[@]}" | shuf)
             n="${#ORDER[@]}"
             idx=0
+            mapfile -t LIVE_ORDER < <(printf '%s\n' "${LIVES[@]}" | shuf)
+            live_n="${#LIVE_ORDER[@]}"
+            live_idx=0
             have_live=0
             [ "${#LIVES[@]}" -gt 0 ] && have_live=1
+            if [ "$live_only" -ne "$old_live_only" ]; then
+                # Switched between live-only and normal mode: force the next
+                # step to be treated as the first of a fresh chain so it
+                # doesn't try to transition from a stale prev_img/prev_vid.
+                first=1
+                prev_img=""
+                prev_vid=""
+            fi
         fi
         RELOAD_REQUESTED=0
     }
 
     log_info "Pre-generating initial buffer of ${PREGEN_COUNT} distinct steps before starting player."
-    while [ "$STEP_COUNT" -lt "$PREGEN_COUNT" ]; do
-        build_and_queue_step "${ORDER[$idx]}"
-        prev_img="${ORDER[$idx]}"
-        advance_idx
-    done
+    if [ "$live_only" -eq 1 ]; then
+        while [ "$STEP_COUNT" -lt "$PREGEN_COUNT" ]; do
+            build_and_queue_live_step "${LIVE_ORDER[$live_idx]}"
+            prev_vid="${LIVE_ORDER[$live_idx]}"
+            advance_live_idx
+        done
+    else
+        while [ "$STEP_COUNT" -lt "$PREGEN_COUNT" ]; do
+            build_and_queue_step "${ORDER[$idx]}"
+            prev_img="${ORDER[$idx]}"
+            advance_idx
+        done
+    fi
     log_info "Initial buffer ready (${STEP_COUNT} distinct steps staged). Starting player."
 
     start_player
@@ -1598,12 +1755,21 @@ run_worker() {
         local remaining
         remaining=$(get_remaining_buffer)
         if [ "$remaining" -lt "$PREGEN_COUNT" ]; then
-            local next_img="${ORDER[$idx]}"
-            log_info "Distinct-step buffer at ${remaining}/${PREGEN_COUNT}, building next step: $(basename "$next_img")"
-            build_and_queue_step "$next_img"
-            prev_img="$next_img"
-            flush_queue
-            advance_idx
+            if [ "$live_only" -eq 1 ]; then
+                local next_vid="${LIVE_ORDER[$live_idx]}"
+                log_info "Distinct-step buffer at ${remaining}/${PREGEN_COUNT}, building next live step: $(basename "$next_vid")"
+                build_and_queue_live_step "$next_vid"
+                prev_vid="$next_vid"
+                flush_queue
+                advance_live_idx
+            else
+                local next_img="${ORDER[$idx]}"
+                log_info "Distinct-step buffer at ${remaining}/${PREGEN_COUNT}, building next step: $(basename "$next_img")"
+                build_and_queue_step "$next_img"
+                prev_img="$next_img"
+                flush_queue
+                advance_idx
+            fi
             update_display_state
         else
             # Poll every second (rather than sleeping the full
