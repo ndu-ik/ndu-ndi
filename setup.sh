@@ -14,8 +14,6 @@ echo "Downloading top-level files directly... and picom"
 BASE_URL="https://raw.githubusercontent.com/ndu-ik/ndu-ndi/wallpaper"
 
 # Download a file and abort with a clear message if it fails or comes back empty.
-# fluidwall.sh's set_install() looks for a file literally named "_conkyrc"
-# (not ".conkyrc") in the repo dir -- keep this filename in sync with that.
 fetch() {
     local url="$1" dest="$2"
     if ! curl -sL -f "$url" -o "$dest"; then
@@ -28,7 +26,7 @@ fetch() {
     fi
 }
 
-fetch "$BASE_URL/_conkyrc" "_conkyrc" || exit 1
+fetch "$BASE_URL/.conkyrc" ".conkyrc" || exit 1
 fetch "$BASE_URL/conky_helpers.lua" "conky_helpers.lua" || exit 1
 fetch "$BASE_URL/fluidwall.sh" "fluidwall.sh" || exit 1
 
