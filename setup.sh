@@ -29,6 +29,7 @@ fetch() {
 fetch "$BASE_URL/.conkyrc" ".conkyrc" || exit 1
 fetch "$BASE_URL/conky_helpers.lua" "conky_helpers.lua" || exit 1
 fetch "$BASE_URL/fluidwall.sh" "fluidwall.sh" || exit 1
+fetch "$BASE_URL/fluidwall-tray.sh" "fluidwall-tray.sh" || exit 1
 
 # Download and place picom.conf into ~/.config/
 mkdir -p "$HOME/.config"
