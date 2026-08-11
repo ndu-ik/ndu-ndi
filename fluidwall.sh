@@ -805,7 +805,7 @@ ANURATI_ZIP_URL="https://www.dafontfree.co/wp-content/uploads/download-manager-f
 find_repo_dir() {
     local candidate
     for candidate in "$HOME/ndu-ndi" "$(dirname "$SCRIPT_PATH")"; do
-        if [ -f "$candidate/_conkyrc" ] && [ -f "$candidate/conky_helpers.lua" ] && [ -f "$candidate/fluidwall.sh" ]; then
+        if [ -f "$candidate/.conkyrc" ] && [ -f "$candidate/conky_helpers.lua" ] && [ -f "$candidate/fluidwall.sh" ]; then
             printf '%s\n' "$candidate"
             return 0
         fi
@@ -818,14 +818,14 @@ set_install() {
 
     local repo_dir
     repo_dir=$(find_repo_dir) || {
-        echo "Couldn't find a cloned copy of the repo (looked in ~/ndu-ndi and $(dirname "$SCRIPT_PATH")), expecting _conkyrc, conky_helpers.lua, and fluidwall.sh there. Aborting."
+        echo "Couldn't find a cloned copy of the repo (looked in ~/ndu-ndi and $(dirname "$SCRIPT_PATH")), expecting .conkyrc, conky_helpers.lua, and fluidwall.sh there. Aborting."
         return 1
     }
     echo "Using repo files from: $repo_dir"
 
-    echo "Backing up ~/.conkyrc -> ~/.conkyrc.bak and installing repo's _conkyrc..."
+    echo "Backing up ~/.conkyrc -> ~/.conkyrc.bak and installing repo's .conkyrc..."
     [ -f "$HOME/.conkyrc" ] && cp -f "$HOME/.conkyrc" "$HOME/.conkyrc.bak"
-    cp -f "$repo_dir/_conkyrc" "$HOME/.conkyrc"
+    cp -f "$repo_dir/.conkyrc" "$HOME/.conkyrc"
 
     echo "Installing conky_helpers.lua to ~/.local/run ..."
     mkdir -p "$HOME/.local/run"
