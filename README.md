@@ -349,7 +349,7 @@ These scripts are provided as-is. Feel free to modify and distribute.
 
 ## Appreciations
 
-Many thanks to [shuokenzi23](https://github.com/shuokenzi23/minimal-clock.git), whose work inspired this project.
+Many thanks to [shuokenzi23](https://github.com/shuokenzi23/minimal-clock.git), whose work inspired this project, and to [mmhobi7](https://github.com/mmhobi7/xwinwrap) for xwinwrap.
 
 ## Contributing
 
