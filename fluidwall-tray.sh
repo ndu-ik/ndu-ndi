@@ -20,6 +20,17 @@ get_status() {
 }
 export -f get_status
 
+# Retrieves whether fluidwall's conky management is enabled or disabled,
+# from the "Conky: enabled (...)"/"Conky: disabled" line in `fluidwall status`.
+get_conky_status() {
+    if $FW_CMD status | grep -qE '^Conky: enabled'; then
+        echo "ENABLED"
+    else
+        echo "DISABLED"
+    fi
+}
+export -f get_conky_status
+
 # Handles the execution of options selected from the yad list
 handle_action() {
     local action=$1
@@ -70,6 +81,16 @@ handle_action() {
                 notify-send "Fluidwall" "Live every frequency updated to $n."
             fi
             ;;
+        TOGGLE_CONKY)
+            local conky_status=$(get_conky_status)
+            if [[ "$conky_status" == "ENABLED" ]]; then
+                $FW_CMD set-conky off
+                notify-send "Fluidwall" "Conky disabled."
+            else
+                $FW_CMD set-conky on
+                notify-send "Fluidwall" "Conky enabled."
+            fi
+            ;;
         EXIT_APP)
             # Terminates the tray app[cite: 2]
             killall yad
@@ -96,6 +117,14 @@ open_menu() {
 
     menu_items+=("appointment-new" "Change Duration" "CHANGE_DURATION")
     menu_items+=("view-refresh" "Set Live Every" "SET_LIVE_EVERY")
+
+    local conky_status=$(get_conky_status)
+    if [[ "$conky_status" == "ENABLED" ]]; then
+        menu_items+=("preferences-system" "Disable Conky" "TOGGLE_CONKY")
+    else
+        menu_items+=("preferences-system" "Enable Conky" "TOGGLE_CONKY")
+    fi
+
     menu_items+=("system-log-out" "Exit Manager" "EXIT_APP")
 
     # Calculate height dynamically based on the number of options[cite: 2]
