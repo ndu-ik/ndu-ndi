@@ -905,6 +905,24 @@ fi'
     mkdir -p "$HOME/.local/bin"
     cp -f "$repo_dir/fluidwall.sh" "$HOME/.local/bin/fluidwall"
     chmod +x "$HOME/.local/bin/fluidwall"
+    if [ -f "$HOME/.local/bin/fluidwall" ]; then
+        log_info "set-install: fluidwall installed to ~/.local/bin/fluidwall."
+    else
+        log_err "set-install: failed to install fluidwall to ~/.local/bin."
+    fi
+
+    echo "Installing 'fluidwall-tray' to ~/.local/bin ..."
+    if [ -f "$repo_dir/fluidwall-tray.sh" ]; then
+        cp -f "$repo_dir/fluidwall-tray.sh" "$HOME/.local/bin/fluidwall-tray"
+        chmod +x "$HOME/.local/bin/fluidwall-tray"
+        if [ -f "$HOME/.local/bin/fluidwall-tray" ]; then
+            log_info "set-install: fluidwall-tray installed to ~/.local/bin/fluidwall-tray."
+        else
+            log_err "set-install: failed to install fluidwall-tray to ~/.local/bin."
+        fi
+    else
+        log_warn "set-install: fluidwall-tray.sh not found in $repo_dir, skipping."
+    fi
 
     echo "Restarting conky..."
     killall conky 2>/dev/null
