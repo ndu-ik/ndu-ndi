@@ -1,101 +1,124 @@
-# FluidWall - Dynamic Wallpaper Engine with Conky Integration
+# FluidWall — Dynamic Wallpaper Engine with Conky Integration
 
-A complete solution for dynamic wallpaper management with intelligent contrast-based text coloring for Conky.
+A complete solution for dynamic wallpaper management: smooth image/video cycling, intelligent contrast-based text coloring for Conky, and a tray icon to control it all without touching a terminal.
 
-## quicksetup 
- quick setup
+### preview video
+https://github.com/user-attachments/assets/073ef5a4-09df-4477-a04a-95c95f4fd122
+
+### preview image
+<img width="1920" height="1080" alt="preview" src="https://github.com/user-attachments/assets/1d56ba96-2849-4f77-a153-03ebabfaf7b2" />
+
+## Quick setup
+
 ```bash
 curl https://raw.githubusercontent.com/ndu-ik/ndu-ndi/wallpaper/setup.sh | bash
 ```
 
-> pls note:
-> 
-> this script was built for live wallpapers with short durations (less than 5mins) NB: `for every set duration, the script loops the live wallpaper at least **once** regardless of how long the live wallpaper video is.` 
+This clones the required files into `~/ndu-ndi`, installs OS-level dependencies, sets up conky's config, `conky_helpers.lua`, and the Anurati font, puts `fluidwall` and `fluidwall-tray` on your `PATH` (`~/.local/bin`), and installs `picom.conf` to `~/.config/`. Picom is started automatically at the end of setup; conky is started automatically the first time you run `fluidwall start`.
+
+If GitHub's raw-content CDN serves you a stale copy of `setup.sh`, bust the cache with a dummy query param:
+
+```bash
+curl "https://raw.githubusercontent.com/ndu-ik/ndu-ndi/wallpaper/setup.sh?nocache=$(date +%s)" | bash
+```
+
+> **Note:** this script was built for live wallpapers with short durations (under ~5 min). For every set duration, the daemon loops the live wallpaper at least **once**, regardless of how long the video is — see [How Duration Works with Live Wallpapers](#how-duration-works-with-live-wallpapers) below.
 
 ## Overview
 
-FluidWall is a sophisticated wallpaper engine that provides:
+FluidWall provides:
 
-- **Dynamic wallpaper cycling** with smooth transitions between images and live videos
-- **Intelligent text contrast** - automatically adjusts Conky text color to remain readable against any wallpaper
-- **Live video wallpaper support** - seamlessly integrates video clips into your wallpaper rotation
-- **Zero-config Conky integration** - no need to edit `.conkyrc` or restart Conky
-- **Resource-efficient** - uses caching and pre-generation to minimize CPU/GPU usage
-- **GPU acceleration support** - optional VAAPI hardware encoding/decoding
+- **Dynamic wallpaper cycling** with smooth crossfade transitions between images and live videos
+- **Intelligent text contrast** — automatically adjusts Conky text color to stay readable against any wallpaper
+- **Live video wallpaper support** — seamlessly integrates video clips into your wallpaper rotation
+- **Zero-config Conky integration** — no need to hand-edit `.conkyrc` colors or restart Conky on wallpaper change
+- **Managed Conky lifecycle** — fluidwall starts conky when the daemon starts and checks on it every 30s, restarting it if it dies (can be disabled)
+- **Resource-efficient** — caching and pre-generation minimize CPU/GPU usage
+- **GPU acceleration support** — optional VAAPI hardware encoding/decoding (AMD/Intel)
+- **Tray icon control** — start/stop, change duration, and toggle conky from `fluidwall-tray`, no terminal needed
 
 ## Components
 
-The system consists of two main components:
-
-### 1. `fluidwall.sh` - The Wallpaper Engine
-
-Manages the wallpaper slideshow with support for static images and live videos, including automatic contrast detection and Conky color updates.
-
-### 2. `conky_helpers.lua` - Conky Integration
-
-Lua script that reads color states and displays dynamic greetings in Conky.
+| File | Purpose |
+|---|---|
+| `fluidwall.sh` | The wallpaper engine — daemon, CLI, and installer. Installed as `fluidwall`. |
+| `fluidwall-tray.sh` | System tray control panel built on `yad`. Installed as `fluidwall-tray`. |
+| `conky_helpers.lua` | Lua helpers Conky loads to read the contrast color state and display rotating greetings. |
+| `.conkyrc` | Reference Conky config wired up to use the helpers above. |
+| `picom.conf` | Compositor config for transitions/transparency. |
 
 ## Requirements
 
-### System Dependencies
-
 ```bash
 # Core utilities
-ffmpeg ffprobe mpv socat yad xwinwrap
+ffmpeg ffprobe mpv socat yad xwinwrap conky picom
 
-# GPU acceleration (optional)
-# note this script was built to work with amd/intel gpus for the gpu acceleration option
+# GPU acceleration (optional — built for AMD/Intel VAAPI; Nvidia not currently supported)
 vainfo mesa-va-drivers intel-media-va-driver
 
-# Build dependencies (for xwinwrap)
+# Build dependencies (for compiling xwinwrap)
 git build-essential libx11-dev libxrender-dev x11-xserver-utils
 ```
 
+`fluidwall install` (or `set-install`, which runs it for you) installs all of the above automatically where possible.
+
 ## Quick Start
 
-### Initial Setup
+### Initial setup (manual, if not using the curl one-liner)
 
 ```bash
-# Navigate to the repository
 cd ~/ndu-ndi
-
-# Run the complete setup (installs dependencies, configures Conky, installs font, sets up PATH)
 ./fluidwall.sh set-install
 ```
 
-The `set-install` command handles everything automatically:
+`set-install` handles:
 
-- Installs all system dependencies
-- Backs up and installs the Conky configuration
-- Sets up `conky_helpers.lua`
-- Downloads and installs the Anurati font
-- Adds `fluidwall` to your PATH
-- Restarts Conky
+- Installing all system dependencies
+- Backing up your existing `~/.conkyrc` to `~/.conkyrc.bak` and installing the repo's `.conkyrc`
+- Installing `conky_helpers.lua` to `~/.local/run/`
+- Downloading and installing the Anurati font
+- Adding `~/.local/bin` to `PATH` via `~/.bashrc`
+- Installing `fluidwall` and `fluidwall-tray` to `~/.local/bin`
 
-### Start the Wallpaper Engine
+Conky is *not* force-restarted by `set-install` — it's started (and kept alive) by the daemon once you run `fluidwall start`.
+
+### Start the wallpaper engine
 
 ```bash
-# Start with default settings (30-minute interval)
+# Start with default settings (30-minute interval, conky managed automatically)
 fluidwall start
 
-# Start with custom interval (5 minutes)
+# Start with a custom interval
 fluidwall start --change 5m
 
 # Start with GPU acceleration
 fluidwall start --gpu
 
-# Start with CPU-only (override GPU setting)
+# Force CPU-only (overrides a previously saved --gpu)
 fluidwall start --no-gpu
+
+# Start without fluidwall touching conky at all
+fluidwall start --no-conky
 ```
 
-### Configure Conky (if not using set-install)
+### Tray icon
+
+```bash
+fluidwall-tray &
+```
+
+Gives you a tray icon with start/restart/stop, live status, change duration, set live-every, and enable/disable conky — all as clickable menu items, backed by the same `fluidwall` CLI underneath.
+
+### Configure Conky manually (only if not using `set-install`)
 
 Add to your `.conkyrc`:
 
 ```lua
-# Load the Lua helpers
+-- Load the Lua helpers
 lua_load ~/.local/run/conky_helpers.lua
+```
 
+```
 # Use in your conky text:
 ${lua conky_greeting}
 ${lua_parse conky_color_open}This text adapts to wallpaper contrast${lua_parse conky_color_close}
@@ -103,289 +126,221 @@ ${lua_parse conky_color_open}This text adapts to wallpaper contrast${lua_parse c
 
 ## Detailed Usage
 
-### FluidWall Commands
+### FluidWall commands
 
 ```bash
-# Start/Stop the daemon
-fluidwall start [--change DURATION|-c DURATION] [--gpu|--no-gpu]
+# Start/stop the daemon
+fluidwall start [--change DURATION|-c DURATION] [--gpu|--no-gpu] [--conky|--no-conky]
 fluidwall stop
-fluidwall restart [--change DURATION|-c DURATION] [--gpu|--no-gpu]
+fluidwall restart [--change DURATION|-c DURATION] [--gpu|--no-gpu] [--conky|--no-conky]
 
 # View status and logs
 fluidwall status
 fluidwall log
-fluidwall live-log                    # View live video scheduling log
+fluidwall live-log                    # live video scheduling log
 
 # Change settings on the fly
-fluidwall change DURATION             # Change interval to DURATION
-fluidwall set-live-every N            # Show live video every N images
-fluidwall set-pic-dir [DIR]           # Change image directory (opens picker if omitted)
-fluidwall set-live-dir [DIR]          # Change video directory (opens picker if omitted)
+fluidwall change DURATION             # change interval to DURATION
+fluidwall set-live-every N            # show a live video every N images (N<0 = live-only mode; 0 = never)
+fluidwall set-conky on|off            # enable/disable conky management, applied live
+fluidwall set-pic-dir [DIR]           # change image directory (opens picker if omitted)
+fluidwall set-live-dir [DIR]          # change video directory (opens picker if omitted)
 
 # Pre-generation and cleanup
 fluidwall generate [--gpu|--no-gpu] [--parallel N]
-fluidwall generate --clean            # Remove orphaned cached files
+fluidwall generate --clean            # remove cached bases/clips/transitions with no matching source
 
 # Contrast (text color) settings
-fluidwall set-contrast N              # 0=linear inversion, 100=hard black/white (default: 70)
-fluidwall show-contrast               # Display current contrast value
+fluidwall set-contrast N              # 0 = linear inversion, 100 = hard black/white (default: 70)
+fluidwall show-contrast               # display current contrast value
 
 # Installation
-fluidwall install                     # Install system dependencies only
-fluidwall set-install                 # Full setup: install deps, .conkyrc, helpers, font, PATH
+fluidwall install                     # install system dependencies only
+fluidwall set-install                 # full setup: deps, .conkyrc, helpers, font, PATH, fluidwall + fluidwall-tray on PATH
 
 # Help
 fluidwall help
-fluidwall -h
-fluidwall --help
+fluidwall -h / --help
 ```
 
-### Duration Format
+### Duration format
 
-Durations can be specified in human-readable format:
+- `30s` — 30 seconds
+- `5m` — 5 minutes
+- `2h` — 2 hours
+- `1h-30m` — 1 hour 30 minutes
+- `2h-4m-30s` — 2 hours, 4 minutes, 30 seconds
 
-- `30s` - 30 seconds
-- `5m` - 5 minutes
-- `2h` - 2 hours
-- `1h-30m` - 1 hour and 30 minutes
-- `2h-4m-30s` - 2 hours, 4 minutes, 30 seconds
+**Minimum interval: 5 seconds.**
 
-**Minimum interval**:5 seconds
+### How Duration Works with Live Wallpapers
 
-#### How Duration Works with Live Wallpapers
+Fluidwall handles live wallpapers differently from static images.
 
-Fluidwall handles live wallpapers differently from static images. Here's what you need to know:
+**The short version:** every live wallpaper video will play at least once, regardless of how short your `--change` duration is.
 
-##### The Short Version
+**Why:** when you set a duration (e.g. `--change 30s`), fluidwall tries to fill that time with your live wallpaper by looping it. But if the video is longer than the duration, it still plays the entire video at least once — the duration is a floor, not a hard cutoff. Concretely, the number of loops is `ceil(duration / video_length)`, with a minimum of 1.
 
-**Every live wallpaper video will play at least once**, regardless of how long your `--change` duration is.
+| Live video length | `--change` duration | What actually happens |
+|---|---|---|
+| 30 seconds | 2 minutes | 30s × **4 loops** = 2 minutes |
+| 2 minutes | 30 seconds | **2 minutes × 1 loop** (duration exceeded) |
+| 5 minutes | 1 minute | **5 minutes × 1 loop** (duration exceeded) |
+| 10 seconds | 1 minute | 10s × **6 loops** = 1 minute |
 
-##### Why This Matters
+> **For live wallpapers, `--change` duration is a MINIMUM, not an exact time.** Shorter-than-duration videos loop to fill the gap; longer-than-duration videos play once in full.
 
-When you set a duration (e.g., `--change 30s`), Fluidwall tries to fill that time with your live wallpaper. However, if your live video is longer than the duration, it will still play the entire video at least once.
-
-##### Example Scenarios
-
-| Your Live Video Length | Your `--change` Duration | What Actually Happens                                   |
-| ---------------------- | ------------------------ | ------------------------------------------------------- |
-| 30 seconds             | 2 minutes                | Video plays: 30s × **4 loops** = 2 minutes              |
-| 2 minutes              | 30 seconds               | Video plays: **2 minutes × 1 loop** (duration exceeded) |
-| 5 minutes              | 1 minute                 | Video plays: **5 minutes × 1 loop** (duration exceeded) |
-| 10 seconds             | 1 minute                 | Video plays: 10s × **6 loops** = 1 minute               |
-
-##### Key Takeaway
-
-> **For live wallpapers, the `--change` duration is a MINIMUM, not an exact time.**
-
-- If your video is **shorter** than the duration → It loops to fill the time
-- If your video is **longer** than the duration → It plays at least once (your duration is effectively extended)
-
-##### Recommended Usage
-
-**For predictable timing**, keep your live wallpaper videos short:
-
-```
-# Good: 30-second live video
-fluidwall.sh start --change 2m        # Plays 30s × 4 loops = 2 minutes
-
-# Good: 10-second live video  
-fluidwall.sh start --change 5m        # Plays 10s × 30 loops = 5 minutes
-
-# Less predictable: 3-minute live video
-fluidwall.sh start --change 1m        # Actually plays 3 minutes (video is longer than duration)
-```
-
-### GPU Acceleration Flags
-
-1. ### GPU Acceleration Flags
-
-This ensures every live wallpaper video completes at least one full playthrough, maintaining visual continuity and preventing abrupt cuts.
-
-### Pro Tip
-
-For best results, create or choose live wallpapers that are:
-
-- **Short** (under 1 minute) for precise control
-- **Loop-friendly** (seamless ends that connect smoothly)
-- **Consistent** in duration (matching your preferred change interval)
-
----
-
-**Related Commands:**
+**Recommended usage** — for predictable timing, keep live wallpaper videos short:
 
 ```bash
-# See current duration settings
-fluidwall.sh status
+# Good: 30-second live video
+fluidwall start --change 2m        # plays 30s × 4 loops = 2 minutes
 
-# Change duration (minimum 60s)
-fluidwall.sh change 5m
+# Good: 10-second live video
+fluidwall start --change 5m        # plays 10s × 30 loops = 5 minutes
 
-# Set how often to use live wallpapers (vs static images)
-fluidwall.sh set-live-every 3    # Use live every 3 images
+# Less predictable: 3-minute live video
+fluidwall start --change 1m        # actually plays ~3 minutes (video is longer than duration)
 ```
 
-### GPU Acceleration Flags
+For best results, use live wallpapers that are short (under ~1 minute), loop-friendly (seamless start/end), and roughly consistent with your change interval.
 
-- `--gpu`: Enable VAAPI hardware encoding/decoding (AMD/Intel)
-- `--no-gpu`: Force CPU encoding/decoding (overrides saved setting)
+### GPU acceleration flags
 
-The GPU setting persists to `~/.local/run/fluidwall.conf`. Without either flag, the last saved setting is used (default: off).
+- `--gpu` — enable VAAPI hardware encoding/decoding (AMD/Intel)
+- `--no-gpu` — force CPU encoding/decoding (overrides a previously saved setting)
 
-### Contrast Control
+Persists to `~/.local/run/fluidwall.conf`. Without either flag, the last saved setting is reused (default: off).
 
-The wallpaper engine automatically adjusts Conky text colors for optimal readability:
+### Conky management
 
-- **Contrast value (0-100)**: Controls the mapping from background brightness to text color
-  - `0`: Linear inversion (text = 255 - bg)
-  - `70` (default): Smooth contrast with balanced saturation
-  - `100`: Hard black/white step function
+- `--conky` / `--no-conky` on `start`/`restart` — enable or disable fluidwall's conky handling; persists.
+- `fluidwall set-conky on|off` — flips it immediately without restarting the daemon.
+- When enabled (default), fluidwall starts conky the moment the daemon starts (if it isn't already running) and re-checks every 30 seconds, restarting conky if it has died.
+- When disabled, fluidwall never touches conky — start, stop, or run it yourself.
+- `fluidwall status` reports `Conky: enabled (running)` / `(not running)` / `disabled`.
 
-Color transitions are smooth and fixed at speed 20 (1=fast, 100=slow).
+### Contrast control
+
+FluidWall automatically adjusts Conky text color for readability against the current wallpaper:
+
+- **Contrast value (0–100)** controls the mapping from background brightness to text color
+  - `0` — linear inversion (text = 255 − background)
+  - `70` (default) — smooth contrast with balanced saturation
+  - `100` — hard black/white step function
+
+Color transitions are smooth, fixed at fade speed 20 (1 = fast, 100 = slow).
 
 ## Architecture
 
-### How It Works
+### How it works
 
-1. **Wallpaper Cycling**:
-   
-   - Scans directories for images and videos
-   - Generates short "base clips" (0.5 seconds) of each media
-   - Maintains a buffer of pre-generated clips for seamless transitions
-   - Uses `mpv` + `xwinwrap` for video playback
-   - Applies crossfade transitions between clips
+1. **Wallpaper cycling**
+   - Scans `PIC_DIR`/`LIVE_DIR` for images and videos
+   - Generates short base clips (0.5s) of each image/video
+   - Maintains a rolling buffer of `PREGEN_COUNT` (default: 5) distinct pre-generated steps queued ahead
+   - Uses `mpv` + `xwinwrap` for playback, with crossfade transitions between clips
 
-2. **Contrast Detection**:
-   
-   - Monitors current wallpaper changes
-   - Samples average brightness of current image/video
-   - Applies sigmoid mapping with configurable contrast value
-   - Writes contrast color to `~/.local/run/conky_color.txt`
+2. **Contrast detection**
+   - Watches for wallpaper changes
+   - Samples average brightness of the current image/video
+   - Applies a sigmoid mapping at the configured contrast value
+   - Writes the resulting color to `~/.local/run/conky_color.txt`
 
-3. **Conky Integration**:
-   
-   - Reads color state file on each Conky update
-   - Applies color without restarting Conky
+3. **Conky integration**
+   - `conky_helpers.lua` reads the color state file on every Conky update cycle — no `.conkyrc` edit or Conky restart needed on wallpaper change
+   - fluidwall separately manages whether the conky *process itself* is running (see [Conky management](#conky-management) above)
    - Rotates greetings from a text file
 
-### Directory Structure
+### Directory structure
 
 ```
 ~/.local/run/
-├── fluidwall.current_img      # Current wallpaper path
-├── conky_color.txt            # Current contrast color (hex)
-├── fluidwall.pid              # Daemon PID
-├── fluidwall_mpv.sock         # MPV IPC socket
-├── fluidwall.conf             # Configuration (interval, live_every, GPU)
+├── fluidwall.current_img      # current wallpaper path
+├── conky_color.txt            # current contrast color (hex)
+├── fluidwall.pid              # daemon PID
+├── fluidwall_mpv.sock         # mpv IPC socket
+├── fluidwall.conf             # config (interval, live_every, GPU, conky)
 └── conky_helpers.lua          # Lua helper script
 
 ~/.config/wallpaper_contrast/
-└── skew.conf                  # Contrast value (0-100)
+└── skew.conf                  # contrast value (0-100)
 
-~/Pictures/wallpaper_engine/   # Generated clip cache
+<pic_dir>/wallpaper_engine/    # generated clip cache (default pic dir: ~/Pictures)
 ├── bases/                     # 0.5s base clips of images
-├── clips/                     # Live video head/tail clips
-└── brightness/                # Cached brightness values
+├── clips/                     # live video head/tail clips
+└── brightness/                # cached brightness values
 
-/tmp/fluidwall_ram_*/          # RAM cache for active clips
-/tmp/wallpaper_engine/         # Transition clips cache
+/mnt/fluidwall_ram/<uid>/      # RAM cache for active clips
+/mnt/fluidwall_ram/wallpaper_engine/transitions/   # transition clips cache
 ```
 
 ## Performance Optimization
 
-### GPU Acceleration
-
-Enable hardware encoding/decoding for better performance:
+### GPU acceleration
 
 ```bash
 fluidwall start --gpu
 ```
 
-### Pre-Generation
+### Pre-generation
 
-Generate all clips in advance to avoid startup delays:
+Build all clips ahead of time to avoid first-run stalls:
 
 ```bash
 fluidwall generate --parallel 4
 ```
 
-### Memory Usage
+### Memory usage
 
-- Base clips are cached in RAM (`/tmp/fluidwall_ram_*/`)
-- Only `PREGEN_COUNT` clips are kept in memory (default: 3)
-- Default buffer: ~10-15MB per clip
-
-### Buffer Management
-
-The system maintains a rolling buffer of `PREGEN_COUNT` distinct steps queued ahead of playback. Each step represents one displayed item (image or live video segment) and is enqueued as a single playlist entry using mpv's built-in loop feature.
+- Active clips are cached in RAM under `/mnt/fluidwall_ram/<uid>/`
+- The daemon keeps `PREGEN_COUNT` (default: 5) distinct steps queued ahead at any time
+- Buffer refills happen automatically in the background as playback consumes the queue
 
 ## Troubleshooting
 
-### Common Issues
-
 **Wallpaper not changing:**
-
 ```bash
-# Check if daemon is running
 fluidwall status
-
-# Check logs for errors
 fluidwall log
-
-# Restart the daemon
 fluidwall restart
 ```
 
-**Conky color not updating:**
-
+**Conky not running / conky color not updating:**
 ```bash
-# Check if daemon is running
-fluidwall status
-
-# View current contrast setting
+fluidwall status              # shows conky's running state
+fluidwall set-conky on        # re-enable/restart conky management
 fluidwall show-contrast
-
-# Force color update by adjusting contrast
-fluidwall set-contrast 50
+fluidwall set-contrast 50     # force a color update
 ```
 
 **Video wallpapers not working:**
-
 ```bash
-# Verify xwinwrap is installed
 which xwinwrap
-
-# Check GPU/VAAPI setup
-vainfo
-
-# Fall back to CPU
-fluidwall restart --no-gpu
+vainfo                        # check GPU/VAAPI setup
+fluidwall restart --no-gpu    # fall back to CPU
 ```
 
 **Memory/CPU issues:**
-
 ```bash
-# Reduce parallel generation jobs
 fluidwall generate --parallel 1
 ```
 
 ## Advanced Configuration
 
-### Custom Image and Video Directories
+### Custom image and video directories
 
 ```bash
-# Set directories (opens picker if no argument provided)
 fluidwall set-pic-dir ~/Pictures/Wallpapers
 fluidwall set-live-dir ~/Videos/LiveWallpapers
 ```
 
-### Live Video Scheduling
+### Live video scheduling
 
 ```bash
-# Show live video every N static images
-fluidwall set-live-every 3
-
-# Disable live videos
-fluidwall set-live-every 0
+fluidwall set-live-every 3     # show a live video every 3 static images
+fluidwall set-live-every 0     # never show live videos (static images only)
+fluidwall set-live-every -1    # live-only mode, no static images at all
 ```
 
 ## License
@@ -394,27 +349,17 @@ These scripts are provided as-is. Feel free to modify and distribute.
 
 ## Appreciations
 
-- many thanks to [shuokenzi23](https://github.com/shuokenzi23/minimal-clock.git) whose work inspired this script
+Many thanks to [shuokenzi23](https://github.com/shuokenzi23/minimal-clock.git), whose work inspired this project.
 
 ## Contributing
 
-Suggestions and improvements welcome! Key areas for contribution:
+Suggestions and improvements welcome. Areas of interest:
 
 - Additional transition effects
 - More color mapping algorithms
 - Support for more video formats
-- Integration with other desktop environments
+- Integration with other desktop environments / compositors
 
 ---
 
-### preview video
-
-https://github.com/user-attachments/assets/073ef5a4-09df-4477-a04a-95c95f4fd122
-
-### preview image 
-
-<img width="1920" height="1080" alt="preview" src="https://github.com/user-attachments/assets/1d56ba96-2849-4f77-a153-03ebabfaf7b2" />
-
-
-
-**Note**: This system was designed for X11 environments and intel/amd GPUs. Support for nvidea coming soon. Wayland support may require additional configuration.
+**Note:** built and tested for X11 with AMD/Intel GPUs. Nvidia support is not currently available. Wayland may require additional configuration.
