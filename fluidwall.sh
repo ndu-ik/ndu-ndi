@@ -874,7 +874,13 @@ fi'
         printf '\n%s\n' "$path_snippet" >> "$HOME/.bashrc"
     fi
     # shellcheck disable=SC1090
+    # .bashrc often references variables (interactive-shell guards, distro
+    # extras, etc.) that are unset in this context -- 'set -u' would treat
+    # that as fatal and kill set_install entirely. Relax it just for the
+    # source, then restore.
+    set +u
     source "$HOME/.bashrc" 2>/dev/null
+    set -u
 
     # Verify the snippet actually landed in .bashrc and that PATH itself
     # (in this shell, post-source) now contains ~/.local/bin. Purely
