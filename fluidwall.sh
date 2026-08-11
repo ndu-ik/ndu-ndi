@@ -46,6 +46,7 @@ DEFAULT_INTERVAL=1800
 DEFAULT_LIVE_EVERY=3
 DEFAULT_GPU=0
 DEFAULT_PARALLEL=4
+DEFAULT_CONKY=1
 
 RUN_DIR="${HOME}/.local/run"
 LOG_DIR="${HOME}/.local/log"
@@ -247,12 +248,16 @@ gpu_flag=0
 nogpu_flag=0
 parallel_arg=""
 clean_flag=0
+conky_flag=0
+noconky_flag=0
 extract_flags() {
     interval_arg=""
     gpu_flag=0
     nogpu_flag=0
     parallel_arg=""
     clean_flag=0
+    conky_flag=0
+    noconky_flag=0
     while [ $# -gt 0 ]; do
         case "$1" in
             -c|--change)
@@ -266,6 +271,12 @@ extract_flags() {
                 shift ;;
             --no-gpu)
                 nogpu_flag=1
+                shift ;;
+            --conky)
+                conky_flag=1
+                shift ;;
+            --no-conky)
+                noconky_flag=1
                 shift ;;
             --parallel)
                 parallel_arg="${2:-}"
@@ -285,14 +296,17 @@ extract_flags() {
 usage() {
     cat <<EOF
 Usage:
-  fluidwall.sh start [--change DURATION|-c DURATION] [--gpu|--no-gpu]
+  fluidwall.sh start [--change DURATION|-c DURATION] [--gpu|--no-gpu] [--conky|--no-conky]
   fluidwall.sh stop
-  fluidwall.sh restart [--change DURATION|-c DURATION] [--gpu|--no-gpu]
+  fluidwall.sh restart [--change DURATION|-c DURATION] [--gpu|--no-gpu] [--conky|--no-conky]
   fluidwall.sh status
   fluidwall.sh log
   fluidwall.sh live-log
   fluidwall.sh change DURATION
   fluidwall.sh set-live-every N     (N<0 = live-only mode, no static images)
+  fluidwall.sh set-conky on|off     (enable/disable fluidwall's conky
+                                      management immediately, persists,
+                                      applied live if the daemon is running)
   fluidwall.sh set-pic-dir [DIR]     (opens picker if DIR omitted)
   fluidwall.sh set-live-dir [DIR]    (opens picker if DIR omitted)
   fluidwall.sh generate [--gpu|--no-gpu] [--parallel N]
@@ -322,6 +336,13 @@ Duration examples: 5m, 10m, 2h, 1h-30m, 2h-4m-30s
 forces CPU for both, overriding a previously-saved --gpu. Both flags
 persist to ${CONFIG_FILE} so you don't need to edit it by hand.
 Without either flag, whatever was last set is reused (default: off).
+
+--conky enables conky alongside the daemon: started on 'start'/'restart' if
+not already running, and checked every ${CONKY_CHECK_INTERVAL}s while the daemon runs,
+restarting it if it dies. --no-conky disables this entirely (conky is left
+alone, never started or monitored by fluidwall). Both flags persist to
+${CONFIG_FILE}. Without either flag, whatever was last set is reused
+(default: on).
 
 --parallel N (generate only) runs up to N ffmpeg jobs concurrently.
 Default: ${DEFAULT_PARALLEL}.
@@ -358,6 +379,7 @@ LIVE_DIR="$DEFAULT_LIVE_DIR"
 INTERVAL="$DEFAULT_INTERVAL"
 LIVE_EVERY="$DEFAULT_LIVE_EVERY"
 GPU="$DEFAULT_GPU"
+CONKY="$DEFAULT_CONKY"
 
 ensure_config() {
     if [ ! -f "$CONFIG_FILE" ]; then
@@ -367,6 +389,7 @@ LIVE_DIR=$DEFAULT_LIVE_DIR
 INTERVAL=$DEFAULT_INTERVAL
 LIVE_EVERY=$DEFAULT_LIVE_EVERY
 GPU=$DEFAULT_GPU
+CONKY=$DEFAULT_CONKY
 EOF
     fi
 }
@@ -382,6 +405,7 @@ load_config() {
             INTERVAL)   [[ "$v" =~ ^[0-9]+$ ]] && INTERVAL="$v" ;;
             LIVE_EVERY) [[ "$v" =~ ^-?[0-9]+$ ]] && LIVE_EVERY="$v" ;;
             GPU)        [[ "$v" =~ ^[01]$ ]] && GPU="$v" ;;
+            CONKY)      [[ "$v" =~ ^[01]$ ]] && CONKY="$v" ;;
         esac
     done < "$CONFIG_FILE"
 }
@@ -404,6 +428,17 @@ apply_gpu_flags() {
         set_config_key GPU 0
     elif [ "$gpu" = "1" ]; then
         set_config_key GPU 1
+    fi
+}
+
+# Applies --conky / --no-conky to the saved config. --no-conky wins if both
+# given. No-op if neither flag was passed.
+apply_conky_flags() {
+    local conky="$1" noconky="$2"
+    if [ "$noconky" = "1" ]; then
+        set_config_key CONKY 0
+    elif [ "$conky" = "1" ]; then
+        set_config_key CONKY 1
     fi
 }
 
@@ -924,11 +959,6 @@ fi'
         log_warn "set-install: fluidwall-tray.sh not found in $repo_dir, skipping."
     fi
 
-    echo "Restarting conky..."
-    killall conky 2>/dev/null
-    conky &
-    disown
-
     echo "pls you might want to make edits to the conkyrc file to align it to your preference"
 }
 
@@ -995,12 +1025,14 @@ daemon_running() {
 }
 
 stop_daemon() {
+    load_config
     if ! daemon_running; then
         echo "Fluidwall daemon is not running."
         rm -f "$PID_FILE"
         pkill -x xwinwrap 2>/dev/null
         pkill -x mpv 2>/dev/null
         cleanup_ram_cache
+        stop_conky_if_managed
         return 0
     fi
     local pid; pid=$(cat "$PID_FILE")
@@ -1015,6 +1047,7 @@ stop_daemon() {
     # was killed before the trap fired (KILL, crash, etc.) this guarantees
     # the RAM cache never lingers between runs.
     cleanup_ram_cache
+    stop_conky_if_managed
     echo "Fluidwall daemon stopped."
 }
 
@@ -1026,6 +1059,11 @@ status_daemon() {
         printf 'Interval: %ss   Live every: %s   Pic dir: %s   Live dir: %s\n' \
             "$INTERVAL" "$live_every_desc" "$PIC_DIR" "$LIVE_DIR"
         printf 'Resolution: %sx%s   GPU (VAAPI): %s\n' "$TARGET_W" "$TARGET_H" "$([ "$GPU" = "1" ] && echo on || echo off)"
+        if [ "$CONKY" = "1" ]; then
+            printf 'Conky: enabled (%s)\n' "$(conky_running && echo running || echo not\ running)"
+        else
+            printf 'Conky: disabled\n'
+        fi
         printf 'Pregen buffer target: %s distinct steps\n' "$PREGEN_COUNT"
         load_skew
         printf 'Contrast: %s   (smooth fade fixed at 20)\n' "$SKEW"
@@ -1037,8 +1075,44 @@ status_daemon() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# 7b. Conky management — optional, controlled by the CONKY config flag.
+#     ensure_conky_running() is called once when the daemon starts, and
+#     again every CONKY_CHECK_INTERVAL seconds from inside the worker loop
+#     to restart conky if it has died. No-ops entirely when CONKY=0.
+# ---------------------------------------------------------------------------
+CONKY_CHECK_INTERVAL=30   # seconds between conky liveness checks in the worker loop
+
+conky_running() {
+    pgrep -x conky >/dev/null 2>&1
+}
+
+# Starts conky if enabled and not already running. Safe to call repeatedly.
+ensure_conky_running() {
+    [ "$CONKY" = "1" ] || return 0
+    if conky_running; then
+        return 0
+    fi
+    log_info "conky not running, starting it."
+    setsid conky >/dev/null 2>&1 &
+    disown
+    sleep 0.3
+    if conky_running; then
+        log_info "conky started."
+    else
+        log_warn "conky failed to start."
+    fi
+}
+
+# Stops conky if fluidwall is managing it. Only called on explicit daemon
+# stop, never from the monitoring loop.
+stop_conky_if_managed() {
+    [ "$CONKY" = "1" ] || return 0
+    pkill -x conky 2>/dev/null
+}
+
 start_daemon() {
-    local interval="${1:-}" gpu="${2:-0}" nogpu="${3:-0}"
+    local interval="${1:-}" gpu="${2:-0}" nogpu="${3:-0}" conky="${4:-0}" noconky="${5:-0}"
     local resolved
     resolved=$(parse_interval "$interval") || {
         echo "Invalid or too-short duration. Minimum is ${MIN_INTERVAL}s. Examples: 5m, 30m, 2h, 1h-30m."
@@ -1050,8 +1124,10 @@ start_daemon() {
     fi
     set_config_key INTERVAL "$resolved"
     apply_gpu_flags "$gpu" "$nogpu"
+    apply_conky_flags "$conky" "$noconky"
     load_config
-    log_info "Starting daemon (interval=${resolved}s, gpu=${GPU}, resolution=${TARGET_W}x${TARGET_H}, pregen_buffer=${PREGEN_COUNT} distinct steps)."
+    log_info "Starting daemon (interval=${resolved}s, gpu=${GPU}, conky=${CONKY}, resolution=${TARGET_W}x${TARGET_H}, pregen_buffer=${PREGEN_COUNT} distinct steps)."
+    ensure_conky_running
     setsid "$SCRIPT_PATH" --worker >> "$LOG_FILE" 2>&1 &
     local pid=$!
     echo "$pid" > "$PID_FILE"
@@ -1067,10 +1143,10 @@ start_daemon() {
 }
 
 restart_daemon() {
-    local interval="${1:-}" gpu="${2:-0}" nogpu="${3:-0}"
+    local interval="${1:-}" gpu="${2:-0}" nogpu="${3:-0}" conky="${4:-0}" noconky="${5:-0}"
     stop_daemon
     sleep 0.3
-    start_daemon "$interval" "$gpu" "$nogpu"
+    start_daemon "$interval" "$gpu" "$nogpu" "$conky" "$noconky"
 }
 
 # Applies a config change live if the daemon is running, without a restart.
@@ -1110,6 +1186,28 @@ set_live_every() {
             echo "live-every saved ($n, live-only mode). Daemon not running."
         else
             echo "live-every saved ($n). Daemon not running."
+        fi
+    fi
+}
+
+set_conky() {
+    local val="$1"
+    case "$val" in
+        on|1)  val=1 ;;
+        off|0) val=0 ;;
+        *) echo "Usage: fluidwall.sh set-conky on|off"; return 1 ;;
+    esac
+    set_config_key CONKY "$val"
+    load_config
+    if [ "$val" = "1" ]; then
+        echo "Conky enabled."
+        if daemon_running; then
+            ensure_conky_running
+        fi
+    else
+        echo "Conky disabled."
+        if daemon_running; then
+            pkill -x conky 2>/dev/null
         fi
     fi
 }
@@ -1543,6 +1641,9 @@ run_worker() {
     trap 'log_info "Worker received termination signal, exiting."; pkill -x xwinwrap 2>/dev/null; pkill -x mpv 2>/dev/null; rm -f "$SOCK"; cleanup_ram_cache; exit 0' TERM INT
     trap 'RELOAD_REQUESTED=1' USR1
 
+    CONKY_ELAPSED=0
+    ensure_conky_running
+
     scan_sources
     local live_only=0
     [ "$LIVE_EVERY" -lt 0 ] 2>/dev/null && live_only=1
@@ -1805,6 +1906,11 @@ run_worker() {
                 update_display_state
                 sleep 1
                 waited=$((waited + 1))
+                CONKY_ELAPSED=$((CONKY_ELAPSED + 1))
+                if [ "$CONKY_ELAPSED" -ge "$CONKY_CHECK_INTERVAL" ]; then
+                    ensure_conky_running
+                    CONKY_ELAPSED=0
+                fi
             done
         fi
     done
@@ -2007,7 +2113,7 @@ case "${1:-}" in
     start)
         shift
         extract_flags "$@"
-        start_daemon "${interval_arg:-$INTERVAL}" "$gpu_flag" "$nogpu_flag"
+        start_daemon "${interval_arg:-$INTERVAL}" "$gpu_flag" "$nogpu_flag" "$conky_flag" "$noconky_flag"
         ;;
     stop)
         stop_daemon
@@ -2015,7 +2121,7 @@ case "${1:-}" in
     restart)
         shift
         extract_flags "$@"
-        restart_daemon "${interval_arg:-$INTERVAL}" "$gpu_flag" "$nogpu_flag"
+        restart_daemon "${interval_arg:-$INTERVAL}" "$gpu_flag" "$nogpu_flag" "$conky_flag" "$noconky_flag"
         ;;
     status)
         status_daemon
@@ -2039,6 +2145,10 @@ case "${1:-}" in
     set-live-every)
         shift
         set_live_every "${1:-}"
+        ;;
+    set-conky)
+        shift
+        set_conky "${1:-}"
         ;;
     set-pic-dir)
         shift
