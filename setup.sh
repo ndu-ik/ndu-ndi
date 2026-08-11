@@ -46,14 +46,11 @@ if [ -f "fluidwall.sh" ]; then
         exit 1
     fi
 
-    echo "Installation finished. Starting conky and picom..."
-
-    # Run conky and picom as independent background jobs. (Using
-    # 'conky && picom ...' would block picom from ever starting, since
-    # conky runs in the foreground and doesn't exit on its own.)
-    conky &
+    echo "Installation finished. Starting picom..."
+    # Conky is no longer started here -- fluidwall.sh now manages conky
+    # itself (starts it on 'fluidwall start'/'restart' and monitors it every
+    # 30s), gated by the CONKY config flag (--conky/--no-conky).
     picom --config "$HOME/.config/picom.conf" &
-
     disown -a
 else
     echo "Failed to download required files."
